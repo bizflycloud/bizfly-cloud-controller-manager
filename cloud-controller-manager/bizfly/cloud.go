@@ -1,24 +1,61 @@
 package bizfly
 
 import (
+	"context"
+	"fmt"
 	"io"
 
+	"github.com/bizflycloud/gobizfly"
+
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/klog"
 )
 
 const (
 	// ProviderName specifies the name for the Bizfly provider
-	ProviderName string = "BizFly"
+	ProviderName string = "bizflycloud"
+
+	bizflyCloudEmail	string = "BIZFLYCLOUD_EMAIL"
+	bizflyCloudPassword	string	= "BIZFLYCLOUD_PASSWORD"
+)
+
+var (
+	ctx = context.TODO()
 )
 
 type cloud struct {
-	instances     cloudprovider.Instances
-	zones         cloudprovider.Zones
+	client    *gobizfly.Client
+	instances cloudprovider.Instances
+	// zones         cloudprovider.Zones
 	loadbalancers cloudprovider.LoadBalancer
 }
 
 func newCloud() (cloudprovider.Interface, error) {
-	return &cloud{}, nil
+	username := os.Getenv(bizflyCloudEmail)
+	password := os.Getenv(bizflyCloudPassword)
+
+	bizflyClient, err := gobizfly.NewClient(gobizfly.WithTenantName(username))
+	if err != nil {
+		return nil, fmt.Errorf("Cannot create BizFly Cloud Client: %s", err)
+	}
+
+	token, err := bizflyClient.Token.Create(
+		ctx,
+		&gobizfly.TokenCreateRequest{
+			Username: username,
+			Password: password})
+
+	if err != nil {
+		return nil, fmt.Errorf("Cannot create token: %s", err)
+	}
+
+	bizflyClient.SetKeystoneToken(token.KeystoneToken)
+
+	return &cloud{
+		client:        bizflyClient,
+		instances:     bizflyClient.Server,
+		loadbalancers: bizflyClient.LoadBalancer,
+	}, nil
 }
 
 func init() {
@@ -35,11 +72,14 @@ func (c *cloud) LoadBalancer() (cloudprovider.LoadBalancer, bool) {
 }
 
 func (c *cloud) Instances() (cloudprovider.Instances, bool) {
+	klog.V(1).Info("bizfly.Instances() called")
+	klog.V(4).Info("Claiming to support Instances")
 	return c.instances, true
 }
 
 func (c *cloud) Zones() (cloudprovider.Zones, bool) {
-	return c.zones, true
+	klog.V(1).Info("Claiming to support Zones")
+	return c, true
 }
 
 func (c *cloud) Clusters() (cloudprovider.Clusters, bool) {
