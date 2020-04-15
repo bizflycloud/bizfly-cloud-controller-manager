@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/bizflycloud/gobizfly"
 
@@ -15,8 +16,8 @@ const (
 	// ProviderName specifies the name for the Bizfly provider
 	ProviderName string = "bizflycloud"
 
-	bizflyCloudEmail	string = "BIZFLYCLOUD_EMAIL"
-	bizflyCloudPassword	string	= "BIZFLYCLOUD_PASSWORD"
+	bizflyCloudEmail    string = "BIZFLYCLOUD_EMAIL"
+	bizflyCloudPassword string = "BIZFLYCLOUD_PASSWORD"
 )
 
 var (
@@ -52,9 +53,9 @@ func newCloud() (cloudprovider.Interface, error) {
 	bizflyClient.SetKeystoneToken(token.KeystoneToken)
 
 	return &cloud{
-		client:        bizflyClient,
-		instances:     bizflyClient.Server,
-		loadbalancers: bizflyClient.LoadBalancer,
+		client:    bizflyClient,
+		instances: newInstances(bizflyClient),
+		// loadbalancers: bizflyClient.LoadBalancer,
 	}, nil
 }
 
@@ -79,7 +80,7 @@ func (c *cloud) Instances() (cloudprovider.Instances, bool) {
 
 func (c *cloud) Zones() (cloudprovider.Zones, bool) {
 	klog.V(1).Info("Claiming to support Zones")
-	return c, true
+	return nil, true
 }
 
 func (c *cloud) Clusters() (cloudprovider.Clusters, bool) {

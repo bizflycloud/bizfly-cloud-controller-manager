@@ -2,13 +2,14 @@ package bizfly
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"io/ioutil"
 	"regexp"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog"
 
 	"github.com/mitchellh/mapstructure"
@@ -21,15 +22,30 @@ const (
 	instanceShutoff = "SHUTOFF"
 )
 
+type flavor struct {
+	Name string `mapstructure:"name"`
+}
+
+type servers struct {
+	gclient *gobizfly.Client
+}
+
+func newInstances(client *gobizfly.Client) cloudprovider.Instances {
+	return &servers{gclient: client}
+}
+
 // NodeAddresses implements Instances.NodeAddresses
-func (c *cloud) NodeAddresses(ctx context.Context, nodeName types.NodeName) ([]v1.NodeAddress, error) {
+func (s *servers) NodeAddresses(ctx context.Context, nodeName types.NodeName) ([]v1.NodeAddress, error) {
 	klog.V(4).Infof("NodeAddresses(%v) called", nodeName)
-	server, err := serverByName(ctx, c.client, nodeName)
+	server, err := serverByName(ctx, s.gclient, nodeName)
 	if err != nil {
 		return nil, err
 	}
 
-	addrs := nodeAdddresses(server)
+	addrs, err := nodeAdddresses(server)
+	if err != nil {
+		return nil, err
+	}
 	klog.V(4).Infof("NodeAddresses(%v) => %v", nodeName, addrs)
 
 	return addrs, nil
@@ -38,24 +54,27 @@ func (c *cloud) NodeAddresses(ctx context.Context, nodeName types.NodeName) ([]v
 // NodeAddressesByProviderID returns the node addresses of an instances with the specified unique providerID
 // This method will not be called from the node that is requesting this ID. i.e. metadata service
 // and other local methods cannot be used here
-func (c *cloud) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]v1.NodeAddress, error) {
+func (s *servers) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]v1.NodeAddress, error) {
 	klog.V(4).Infof("NodeAddressesByProviderID(%v) called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return []v1.NodeAddress{}, err
 	}
-	server, err := serverByID(ctx, c.client, serverID)
+	server, err := serverByID(ctx, s.gclient, serverID)
 	if err != nil {
 		return []v1.NodeAddress{}, err
 	}
-	addrs := nodeAdddresses(server)
+	addrs, err := nodeAdddresses(server)
+	if err != nil {
+		return nil, err
+	}
 	klog.V(4).Infof("NodeAddressesByProviderID(%v) => %v", providerID, addrs)
 	return addrs, nil
 }
 
 // InstanceID returns the cloud provider ID of the node with the specified NodeName.
-func (c *cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string, error) {
-	server, err := serverByName(ctx, c.client, nodeName)
+func (s *servers) InstanceID(ctx context.Context, nodeName types.NodeName) (string, error) {
+	server, err := serverByName(ctx, s.gclient, nodeName)
 	if err != nil {
 		return "", err
 	}
@@ -63,34 +82,44 @@ func (c *cloud) InstanceID(ctx context.Context, nodeName types.NodeName) (string
 }
 
 // InstanceType returns the type of the specified instance.
-func (c *cloud) InstanceType(ctx context.Context, nodeName types.NodeName) (string, error) {
-	server, err := serverByName(ctx, c.client, nodeName)
+func (s *servers) InstanceType(ctx context.Context, nodeName types.NodeName) (string, error) {
+	server, err := serverByName(ctx, s.gclient, nodeName)
 	if err != nil {
 		return "", err
 	}
-	return server.Flavor, nil
+	var f *flavor
+	err = mapstructure.Decode(server.Flavor, &f)
+	if err != nil {
+		return "", err
+	}
+	return f.Name, nil
 }
 
 // InstanceTypeByProviderID returns the type of the specified instance.
-func (c *cloud) InstanceTypeByProviderID(ctx context.Context, providerID string) (string, error) {
+func (s *servers) InstanceTypeByProviderID(ctx context.Context, providerID string) (string, error) {
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return "", err
 	}
-	server, err := serverByID(ctx, c.client, serverID)
+	server, err := serverByID(ctx, s.gclient, serverID)
 	if err != nil {
 		return "", err
 	}
-	return server.Flavor, nil
+	var f *flavor
+	err = mapstructure.Decode(server.Flavor, &f)
+	if err != nil {
+		return "", err
+	}
+	return f.Name, nil
 }
 
 // AddSSHKeyToAllInstances is not implemented; it always returns an error.
-func (c *cloud) AddSSHKeyToAllInstances(_ context.Context, _ string, _ []byte) error {
+func (s *servers) AddSSHKeyToAllInstances(_ context.Context, _ string, _ []byte) error {
 	return errors.New("not implemented")
 }
 
 // CurrentNodeName returns the name of the node we are currently running on
-func (c *cloud) CurrentNodeName(ctx context.Context, hostname string) (types.NodeName, error) {
+func (s *servers) CurrentNodeName(ctx context.Context, hostname string) (types.NodeName, error) {
 	md, err := metadata.Get("")
 	if err != nil {
 		return "", err
@@ -101,12 +130,12 @@ func (c *cloud) CurrentNodeName(ctx context.Context, hostname string) (types.Nod
 // InstanceExistsByProviderID returns true if the instance for the given provider exists.
 // If false is returned with no error, the instance will be immediately deleted by the cloud controller manager.
 // This method should still return true for instances that exist but are stopped/sleeping.
-func (c *cloud) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
+func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return false, err
 	}
-	server, err := serverByID(ctx, c.client, serverID)
+	_, err = serverByID(ctx, s.gclient, serverID)
 	if err != nil {
 		return false, err
 	}
@@ -114,13 +143,13 @@ func (c *cloud) InstanceExistsByProviderID(ctx context.Context, providerID strin
 }
 
 // InstanceShutdownByProviderID returns true if the instance is shutdown in cloudprovider
-func (c *cloud) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
+func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return false, err
 	}
-	
-	server, err := serverByID(ctx, c.client, serverID)
+
+	server, err := serverByID(ctx, s.gclient, serverID)
 	if err != nil {
 		return false, err
 	}
@@ -142,11 +171,11 @@ func nodeAdddresses(server *gobizfly.Server) ([]v1.NodeAddress, error) {
 
 	addresses = append(addresses, v1.NodeAddress{Type: v1.NodeHostName, Address: server.Name})
 
-	if err = mapstructure.Decode(s.Addresses, &addresses); err != nil {
+	if err := mapstructure.Decode(server.Addresses, &addresses); err != nil {
 		return nil, err
 	}
 
-	for net, addr := range addresses {
+	for net, addr := range serverAddresses {
 		if strings.Contains(net, "EXT") {
 			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: addr[0].Address})
 		} else {
@@ -161,10 +190,10 @@ func serverByID(ctx context.Context, client *gobizfly.Client, id string) (*gobiz
 	if err != nil {
 		return nil, err
 	}
-	return &server, nil
+	return server, nil
 }
 
-func serverByName(ctx context.Context, client *gobizfly.Client, name) (*gobizfly.Server, error) {
+func serverByName(ctx context.Context, client *gobizfly.Client, name types.NodeName) (*gobizfly.Server, error) {
 	servers, err := client.Server.List(ctx, &gobizfly.ListOptions{})
 	if err != nil {
 		return nil, err
@@ -172,14 +201,14 @@ func serverByName(ctx context.Context, client *gobizfly.Client, name) (*gobizfly
 
 	for _, server := range servers {
 		if server.Name == string(name) {
-			return &server, nil
+			return server, nil
 		}
 	}
 	return nil, cloudprovider.InstanceNotFound
-} 
+}
 
-func (c *cloud) GetZoneByNodeName(ctx context.Context, client *gobizfly.Client, nodeName types.NodeName) (cloudprovider.Zone, error) {
-	server, err := serverByName(client, nodeName)
+func (s *servers) GetZoneByNodeName(ctx context.Context, client *gobizfly.Client, nodeName types.NodeName) (cloudprovider.Zone, error) {
+	server, err := serverByName(ctx, client, nodeName)
 	if err != nil {
 		return cloudprovider.Zone{}, err
 	}
