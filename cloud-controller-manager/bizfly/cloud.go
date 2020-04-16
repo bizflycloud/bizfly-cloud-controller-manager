@@ -53,9 +53,9 @@ func newCloud() (cloudprovider.Interface, error) {
 	bizflyClient.SetKeystoneToken(token.KeystoneToken)
 
 	return &cloud{
-		client:    bizflyClient,
-		instances: newInstances(bizflyClient),
-		// loadbalancers: bizflyClient.LoadBalancer,
+		client:        bizflyClient,
+		instances:     newInstances(bizflyClient),
+		loadbalancers: newLoadBalancers(bizflyClient),
 	}, nil
 }
 

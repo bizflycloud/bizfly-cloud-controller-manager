@@ -75,6 +75,7 @@ func (s *servers) NodeAddressesByProviderID(ctx context.Context, providerID stri
 
 // InstanceID returns the cloud provider ID of the node with the specified NodeName.
 func (s *servers) InstanceID(ctx context.Context, nodeName types.NodeName) (string, error) {
+	klog.V(4).Infof("InstaneID(%v) is called", nodeName)
 	server, err := serverByName(ctx, s.gclient, nodeName)
 	if err != nil {
 		return "", err
@@ -84,6 +85,7 @@ func (s *servers) InstanceID(ctx context.Context, nodeName types.NodeName) (stri
 
 // InstanceType returns the type of the specified instance.
 func (s *servers) InstanceType(ctx context.Context, nodeName types.NodeName) (string, error) {
+	klog.V(4).Infof("InstanceType(%v) is called", nodeName)
 	server, err := serverByName(ctx, s.gclient, nodeName)
 	if err != nil {
 		return "", err
@@ -98,6 +100,7 @@ func (s *servers) InstanceType(ctx context.Context, nodeName types.NodeName) (st
 
 // InstanceTypeByProviderID returns the type of the specified instance.
 func (s *servers) InstanceTypeByProviderID(ctx context.Context, providerID string) (string, error) {
+	klog.V(4).Infof("InstanceTypeByProviderID(%v) is called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return "", err
@@ -121,6 +124,7 @@ func (s *servers) AddSSHKeyToAllInstances(_ context.Context, _ string, _ []byte)
 
 // CurrentNodeName returns the name of the node we are currently running on
 func (s *servers) CurrentNodeName(ctx context.Context, hostname string) (types.NodeName, error) {
+	klog.V(4).Infof("CurrentNodeName(%v) is called", hostname)
 	md, err := metadata.Get("")
 	if err != nil {
 		return "", err
@@ -132,6 +136,7 @@ func (s *servers) CurrentNodeName(ctx context.Context, hostname string) (types.N
 // If false is returned with no error, the instance will be immediately deleted by the cloud controller manager.
 // This method should still return true for instances that exist but are stopped/sleeping.
 func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
+	klog.V(4).Infof("InstanceExistsByProviderID(%v) is called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return false, err
@@ -145,6 +150,7 @@ func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID str
 
 // InstanceShutdownByProviderID returns true if the instance is shutdown in cloudprovider
 func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
+	klog.V(4).Infof("InstanceShutdownByProviderID(%v) is called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return false, err
