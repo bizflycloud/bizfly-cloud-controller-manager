@@ -42,6 +42,7 @@ func (s *servers) NodeAddresses(ctx context.Context, nodeName types.NodeName) ([
 		return nil, err
 	}
 
+	klog.V(4).Infof("Server %v", server.Name)
 	addrs, err := nodeAdddresses(server)
 	if err != nil {
 		return nil, err
@@ -171,7 +172,8 @@ func nodeAdddresses(server *gobizfly.Server) ([]v1.NodeAddress, error) {
 
 	addresses = append(addresses, v1.NodeAddress{Type: v1.NodeHostName, Address: server.Name})
 
-	if err := mapstructure.Decode(server.Addresses, &addresses); err != nil {
+	if err := mapstructure.Decode(server.Addresses, &serverAddresses); err != nil {
+		klog.V(1).Infof("Cannot decode server: %v", err)
 		return nil, err
 	}
 
@@ -219,7 +221,7 @@ func (s *servers) GetZoneByNodeName(ctx context.Context, client *gobizfly.Client
 }
 
 // If Instances.InstanceID or cloudprovider.GetInstanceProviderID is changed, the regexp should be changed too.
-var providerIDRegexp = regexp.MustCompile(`^` + ProviderName + `:///([^/]+)$`)
+var providerIDRegexp = regexp.MustCompile(`^` + ProviderName + `://([^/]+)$`)
 
 // instanceIDFromProviderID splits a provider's id and return instanceID.
 // A providerID is build out of '${ProviderName}:///${instance-id}'which contains ':///'.
@@ -233,7 +235,7 @@ func serverIDFromProviderID(providerID string) (instanceID string, err error) {
 
 	matches := providerIDRegexp.FindStringSubmatch(providerID)
 	if len(matches) != 2 {
-		return "", fmt.Errorf("ProviderID \"%s\" didn't match expected format \"openstack:///InstanceID\"", providerID)
+		return "", fmt.Errorf("ProviderID \"%s\" didn't match expected format \"bizflycloud:///InstanceID\"", providerID)
 	}
 	return matches[1], nil
 }

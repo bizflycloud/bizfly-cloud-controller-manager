@@ -69,7 +69,7 @@ func (c *cloud) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, 
 }
 
 func (c *cloud) LoadBalancer() (cloudprovider.LoadBalancer, bool) {
-	return c.loadbalancers, true
+	return nil, false
 }
 
 func (c *cloud) Instances() (cloudprovider.Instances, bool) {
@@ -80,7 +80,7 @@ func (c *cloud) Instances() (cloudprovider.Instances, bool) {
 
 func (c *cloud) Zones() (cloudprovider.Zones, bool) {
 	klog.V(1).Info("Claiming to support Zones")
-	return nil, true
+	return nil, false
 }
 
 func (c *cloud) Clusters() (cloudprovider.Clusters, bool) {
