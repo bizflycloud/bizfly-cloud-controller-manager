@@ -69,6 +69,8 @@ github.com/bizflycloud/gobizfly v0.0.0-20200417020757-1f83f386933b h1:FyuRa9ReVT
 github.com/bizflycloud/gobizfly v0.0.0-20200417020757-1f83f386933b/go.mod h1:dESSbBmjQ5OJBgRPCTgmxAeqxNnRzXIZuRK3CTW2DUs=
 github.com/bizflycloud/gobizfly v0.0.0-20200417021110-a2e0f8c9a648 h1:u04OySmdqtAbiNRcJ5ZQLWrlcn2+jwkpdMHfR2xzRog=
 github.com/bizflycloud/gobizfly v0.0.0-20200417021110-a2e0f8c9a648/go.mod h1:dESSbBmjQ5OJBgRPCTgmxAeqxNnRzXIZuRK3CTW2DUs=
+github.com/bizflycloud/gobizfly v0.0.0-20200417042513-ac98158f53f2 h1:p7pO7t5ua8nq1vqLxZnXb+FyEcriXdoOjocS57bfa1A=
+github.com/bizflycloud/gobizfly v0.0.0-20200417042513-ac98158f53f2/go.mod h1:dESSbBmjQ5OJBgRPCTgmxAeqxNnRzXIZuRK3CTW2DUs=
 github.com/blang/semver v3.5.0+incompatible h1:CGxCgetQ64DKk7rdZ++Vfnb1+ogGNnB17OJKJXD2Cfs=
 github.com/blang/semver v3.5.0+incompatible/go.mod h1:kRBLl5iJ+tD4TcOOxsy/0fnwebNt5EWlYSAyrTnjyyk=
 github.com/boltdb/bolt v1.3.1/go.mod h1:clJnj/oiGkjum5o1McbSZDSLxVThjynRyGBgiAx27Ps=

@@ -61,10 +61,14 @@ func newLoadBalancers(client *gobizfly.Client) cloudprovider.LoadBalancer {
 // GetLoadBalancer returns whether the specified load balancer exists, and
 // Parameter 'clusterName' is the name of the cluster as presented to kube-controller-manager
 func (l *loadbalancers) GetLoadBalancer(ctx context.Context, clusterName string, service *v1.Service) (*v1.LoadBalancerStatus, bool, error) {
+	klog.V(4).Infof("GetLoadBalancer(%s)", clusterName)
 	name := l.GetLoadBalancerName(ctx, clusterName, service)
 	loadbalancer, err := getLBByName(ctx, l.gclient, name)
 
 	if err != nil {
+		if err == ErrNotFound {
+			return nil, false, nil
+		}
 		return nil, false, err
 	}
 	status := &v1.LoadBalancerStatus{}
@@ -473,7 +477,9 @@ func (l *loadbalancers) EnsureLoadBalancerDeleted(ctx context.Context, clusterNa
 	if err != nil {
 		return err
 	}
-	err = l.gclient.LoadBalancer.Delete(ctx, &gobizfly.LoadBalancerDeleteRequest{true, lb.ID})
+	err = l.gclient.LoadBalancer.Delete(ctx, &gobizfly.LoadBalancerDeleteRequest{
+		Cascade: true,
+		ID:      lb.ID})
 	if err != nil {
 		return err
 	}
