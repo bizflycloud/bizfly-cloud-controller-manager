@@ -160,34 +160,20 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		listener := getListenerForPort(oldListeners, port)
 
 		if listener == nil {
-			// Create a new listener
-			listenerProtocol := string(port.Protocol)
-			listenerName := cutString(fmt.Sprintf("listener_%d_%s", portIndex, name))
-			lcr := gobizfly.ListenerCreateRequest{
-				Name:         &listenerName,
-				Protocol:     listenerProtocol,
-				ProtocolPort: int(port.Port),
-			}
-
-			klog.V(4).Infof("Creating listener for port %d using protocol: %s", int(port.Port), listenerProtocol)
-			listener, err := l.gclient.Listener.Create(ctx, loadbalancer.ID, &lcr)
+			listener, err = l.createListener(ctx, portIndex, int(port.Port), string(port.Protocol), name, loadbalancer.ID)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create listener for loadbalancer %s: %v", loadbalancer.ID, err)
+				return nil, err
 			}
-
-			klog.V(4).Infof("Listener %s created for loadbalancer %s", listener.ID, loadbalancer.ID)
-
-		} else {
-			// Update old listener
-			// listenerChanged := false
-			// updateOpts := gobizfly.ListenerUpdateRequest{}
-
-			// TODO update listener
+			provisioningStatus, err = waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+			if err != nil {
+				return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE, current provisioning status %s", provisioningStatus)
+			}
 		}
 		// After all ports have been processed, remaining listeners are removed as obsolete.
 		// Pop valid listeners.
-		oldListeners = popListener(oldListeners, listener.ID)
-
+		if len(oldListeners) > 0 {
+			oldListeners = popListener(oldListeners, listener.ID)
+		}
 		pool, err := getPoolByListenerID(ctx, l.gclient, loadbalancer.ID, listener.ID)
 
 		if err != nil && err != ErrNotFound {
@@ -196,22 +182,10 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 
 		if pool == nil {
 			// Create a new pool
-
 			// use protocol of listener
-			poolProtocol := string(listener.Protocol)
-			poolName := cutString(fmt.Sprintf("pool_%d_%s", portIndex, name))
-			pcr := gobizfly.PoolCreateRequest{
-				Name:               &poolName,
-				Protocol:           poolProtocol,
-				LBAlgorithm:        "ROUND_ROBIN", // TODO use annotation for algorithm
-				SessionPersistence: persistence,
-				ListenerID:         &listener.ID,
-			}
-
-			klog.V(4).Infof("Creating pool for listener %s using protocol %s", listener.ID, poolProtocol)
-			pool, err = l.gclient.Pool.Create(ctx, loadbalancer.ID, &pcr)
+			pool, err = l.createPoolForListener(ctx, listener, portIndex, loadbalancer.ID, name, persistence)
 			if err != nil {
-				return nil, fmt.Errorf("error creating pool for listener %s: %v", listener.ID, err)
+				return nil, err
 			}
 			provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
 			if err != nil {
@@ -598,6 +572,45 @@ func (l *loadbalancers) createLoadBalancer(ctx context.Context, apiService *v1.S
 	return loadbalancer, nil
 }
 
+func (l *loadbalancers) createListener(ctx context.Context, portIndex int, port int, protocol, lbName, lbID string) (*gobizfly.Listener, error) {
+	// listenerProtocol := string(port.Protocol)
+	listenerName := cutString(fmt.Sprintf("listener_%d_%s", portIndex, lbName))
+	lcr := gobizfly.ListenerCreateRequest{
+		Name:         &listenerName,
+		Protocol:     protocol,
+		ProtocolPort: port,
+	}
+
+	klog.V(4).Infof("Creating listener for port %d using protocol: %s", port, protocol)
+	listener, err := l.gclient.Listener.Create(ctx, lbID, &lcr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create listener for loadbalancer %s: %v", lbID, err)
+	}
+
+	klog.V(4).Infof("Listener %s created for loadbalancer %s", listener.ID, lbID)
+
+	return listener, nil
+}
+
+func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gobizfly.Listener, portIndex int, lbID, lbName string, sessionPersistence *gobizfly.SessionPersistence) (*gobizfly.Pool, error) {
+	poolProtocol := string(listener.Protocol)
+	poolName := cutString(fmt.Sprintf("pool_%d_%s", portIndex, lbName))
+	pcr := gobizfly.PoolCreateRequest{
+		Name:               &poolName,
+		Protocol:           poolProtocol,
+		LBAlgorithm:        "ROUND_ROBIN", // TODO use annotation for algorithm
+		SessionPersistence: sessionPersistence,
+		ListenerID:         &listener.ID,
+	}
+
+	klog.V(4).Infof("Creating pool for listener %s using protocol %s", listener.ID, poolProtocol)
+	pool, err := l.gclient.Pool.Create(ctx, lbID, &pcr)
+	if err != nil {
+		return nil, fmt.Errorf("error creating pool for listener %s: %v", listener.ID, err)
+	}
+	return pool, nil
+}
+
 func getListenersByLoadBalancerID(ctx context.Context, client *gobizfly.Client, loadbalancerID string) ([]*gobizfly.Listener, error) {
 	listeners, err := client.Listener.List(ctx, loadbalancerID, &gobizfly.ListOptions{})
 	if err != nil {
@@ -665,10 +678,10 @@ func getPoolByListenerID(ctx context.Context, client *gobizfly.Client, loadbalan
 	loadbalancerPools, err := client.Pool.List(ctx, loadbalancerID, &gobizfly.ListOptions{})
 
 	if err != nil {
-		if cpoerrors.IsNotFound(err) {
-			return nil, ErrNotFound
-		}
 		return nil, err
+	}
+	if len(loadbalancerPools) == 0 {
+		return nil, ErrNotFound
 	}
 	for _, p := range loadbalancerPools {
 		for _, l := range p.Listeners {
