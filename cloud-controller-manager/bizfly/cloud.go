@@ -18,6 +18,7 @@ const (
 
 	bizflyCloudEmail    string = "BIZFLYCLOUD_EMAIL"
 	bizflyCloudPassword string = "BIZFLYCLOUD_PASSWORD"
+	bizflyCloudRegion   string = "BIZFLYCLOUD_REGION"
 )
 
 var (
@@ -25,15 +26,16 @@ var (
 )
 
 type cloud struct {
-	client    *gobizfly.Client
-	instances cloudprovider.Instances
-	// zones         cloudprovider.Zones
+	client        *gobizfly.Client
+	instances     cloudprovider.Instances
+	zones         cloudprovider.Zones
 	loadbalancers cloudprovider.LoadBalancer
 }
 
 func newCloud() (cloudprovider.Interface, error) {
 	username := os.Getenv(bizflyCloudEmail)
 	password := os.Getenv(bizflyCloudPassword)
+	region := os.Getenv(bizflyCloudRegion)
 
 	bizflyClient, err := gobizfly.NewClient(gobizfly.WithTenantName(username))
 	if err != nil {
@@ -56,6 +58,7 @@ func newCloud() (cloudprovider.Interface, error) {
 		client:        bizflyClient,
 		instances:     newInstances(bizflyClient),
 		loadbalancers: newLoadBalancers(bizflyClient),
+		zones:         newZones(bizflyClient, region),
 	}, nil
 }
 
@@ -69,6 +72,7 @@ func (c *cloud) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, 
 }
 
 func (c *cloud) LoadBalancer() (cloudprovider.LoadBalancer, bool) {
+	klog.V(4).Info("Claiming to support LoadBalancers")
 	return c.loadbalancers, true
 }
 
@@ -80,7 +84,7 @@ func (c *cloud) Instances() (cloudprovider.Instances, bool) {
 
 func (c *cloud) Zones() (cloudprovider.Zones, bool) {
 	klog.V(1).Info("Claiming to support Zones")
-	return nil, false
+	return c.zones, true
 }
 
 func (c *cloud) Clusters() (cloudprovider.Clusters, bool) {
