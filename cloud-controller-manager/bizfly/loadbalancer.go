@@ -467,7 +467,7 @@ func (l *loadbalancers) EnsureLoadBalancerDeleted(ctx context.Context, clusterNa
 func getLBByName(ctx context.Context, client *gobizfly.Client, name string) (*gobizfly.LoadBalancer, error) {
 	loadbalancers, err := client.LoadBalancer.List(ctx, &gobizfly.ListOptions{})
 	if err != nil {
-		fmt.Errorf("Cannot get loadbalancers in your account: %v", err)
+		klog.V(4).Infof("Cannot get loadbalancers in your account: %v", err)
 		return nil, err
 	}
 	for _, lb := range loadbalancers {
