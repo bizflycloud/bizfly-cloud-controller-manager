@@ -36,13 +36,9 @@ const (
 	loadbalancerDeleteFactor    = 1.2
 	loadbalancerDeleteSteps     = 13
 
-	annoBCLoadBalancerID = "kubernetes.bizflycloud.vn/load-balancer-id"
-
-	annoBCLoadBalancerName = "kubernetes.bizflycloud.vn/load-balancer-name"
-
-	annoBCListenerProtocol = "kubernetes.bizflycloud.vn/listener-protocol"
-
 	annoBCLoadBalancerNetworkType = "kubernetes.bizflycloud.vn/load-balancer-network-type"
+
+	annoBCLoadBalancerType = "kubernetes.bizflycloud.vn/load-balancer-type"
 )
 
 // ErrNotFound represents error if the resource not found.
@@ -112,6 +108,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 
 	// Network type of load balancer: internal or external
 	networkType := getStringFromServiceAnnotation(apiService, annoBCLoadBalancerNetworkType, "external")
+	lbType := getStringFromServiceAnnotation(apiService, annoBCLoadBalancerType, "small")
 
 	// Affinity Configuration for pool
 	affinity := apiService.Spec.SessionAffinity
@@ -128,6 +125,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	// Check load balancer is exist or not
 	name := l.GetLoadBalancerName(ctx, clusterName, apiService)
 	loadbalancer, err := getLBByName(ctx, l.gclient, name)
+	klog.V(2).Infof("Get LB by Name: %v", err)
 	if err != nil {
 		if err != ErrNotFound {
 			return nil, fmt.Errorf("error getting loadbalancer for Service %s: %v", serviceName, err)
@@ -135,7 +133,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		// Create new load balancer is the load balancer is not exist.
 		klog.V(2).Infof("Creating loadbalancer %s", name)
 
-		loadbalancer, err = l.createLoadBalancer(apiService, name, clusterName, networkType)
+		loadbalancer, err = l.createLoadBalancer(ctx, apiService, name, clusterName, networkType, lbType)
 		if err != nil {
 			return nil, fmt.Errorf("error creating loadbalancer %s: %v", name, err)
 		}
@@ -581,9 +579,17 @@ func getIntFromServiceAnnotation(service *v1.Service, annotationKey string) (int
 	return 0, false
 }
 
-func (l *loadbalancers) createLoadBalancer(apiService *v1.Service, name string, clusterName string, networkType string) (*gobizfly.LoadBalancer, error) {
-
-	return nil, nil
+func (l *loadbalancers) createLoadBalancer(ctx context.Context, apiService *v1.Service, name string, clusterName string, networkType string, lbType string) (*gobizfly.LoadBalancer, error) {
+	lcr := gobizfly.LoadBalancerCreateRequest{
+		Name:        name,
+		NetworkType: networkType,
+		Type:        lbType,
+	}
+	loadbalancer, err := l.gclient.LoadBalancer.Create(ctx, &lcr)
+	if err != nil {
+		return nil, err
+	}
+	return loadbalancer, nil
 }
 
 func getListenersByLoadBalancerID(ctx context.Context, client *gobizfly.Client, loadbalancerID string) ([]*gobizfly.Listener, error) {
