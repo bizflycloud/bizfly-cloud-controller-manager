@@ -362,21 +362,27 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 	}
 	var listenerIDs []string
 	lbListeners := make(map[portKey]*gobizfly.Listener)
-	listeners, err := getListenersByLoadBalancerID(ctx, l.gclient.Client, lb.ID)
+	listeners, err := getListenersByLoadBalancerID(ctx, l.gclient, lb.ID)
 	if err != nil {
 		return fmt.Errorf("error getting listeners for LB %s: %v", lb.ID, err)
 	}
-	
-	for _, l := range allListeners {
+
+	for _, l := range listeners {
 		key := portKey{Protocol: string(l.Protocol), Port: int(l.ProtocolPort)}
 		lbListeners[key] = l
 		listenerIDs = append(listenerIDs, l.ID)
 	}
 
-	pools, err := getPoolsByLoadBalancerID(ctx, l.gclient, lb.ID)
-	if err != nil {
-		return err
+	// Get all pools for this loadbalancer, by listener ID.
+	lbPools := make(map[string]*gobizfly.Pool)
+	for _, listenerID := range listenerIDs {
+		pool, err := getPoolByListenerID(ctx, l.gclient, lb.ID, listenerID)
+		if err != nil {
+			return fmt.Errorf("error getting pool for listener %s: %v", listenerID, err)
+		}
+		lbPools[listenerID] = pool
 	}
+
 	addrs := make(map[string]*v1.Node)
 	for _, node := range nodes {
 		addr, err := nodeAddressForLB(node)
@@ -394,13 +400,13 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 			Port:     int(port.Port),
 		}]
 		if !ok {
-			return fmt.Errorf("loadbalancer %s does not contain required listener for port %d and protocol %s", loadbalancer.ID, port.Port, port.Protocol)
+			return fmt.Errorf("loadbalancer %s does not contain required listener for port %d and protocol %s", lb.ID, port.Port, port.Protocol)
 		}
 
 		// Get pool associated with this listener
 		pool, ok := lbPools[listener.ID]
 		if !ok {
-			return fmt.Errorf("loadbalancer %s does not contain required pool for listener %s", loadbalancer.ID, listener.ID)
+			return fmt.Errorf("loadbalancer %s does not contain required pool for listener %s", lb.ID, listener.ID)
 		}
 
 		// Find existing pool members (by address) for this port
@@ -420,14 +426,14 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 				continue
 			}
 			_, err := l.gclient.Member.Create(ctx, pool.ID, &gobizfly.MemberCreateRequest{
-				Name:         cutString(fmt.Sprintf("member_%d_%s_%s_", portIndex, node.Name, loadbalancer.Name)),
+				Name:         cutString(fmt.Sprintf("member_%d_%s_%s_", portIndex, node.Name, lb.Name)),
 				Address:      addr,
-				ProtocolPort: int(port.NodePort)
+				ProtocolPort: int(port.NodePort),
 			})
 			if err != nil {
 				return err
 			}
-			provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+			provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lb.ID)
 			if err != nil {
 				return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
 			}
@@ -443,7 +449,7 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 			if err != nil && !cpoerrors.IsNotFound(err) {
 				return err
 			}
-			provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+			provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lb.ID)
 			if err != nil {
 				return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %s", provisioningStatus)
 			}
@@ -467,13 +473,13 @@ func (l *loadbalancers) EnsureLoadBalancerDeleted(ctx context.Context, clusterNa
 	name := l.GetLoadBalancerName(ctx, clusterName, service)
 	lb, err := getLBByName(ctx, l.gclient, name)
 	if err != nil {
-		err
+		return err
 	}
-	err := l.gclient.LoadBalancer.Delete(ctx, &gobizfly.LoadBalancerDeleteRequest{true, lb.ID})
+	err = l.gclient.LoadBalancer.Delete(ctx, &gobizfly.LoadBalancerDeleteRequest{true, lb.ID})
 	if err != nil {
 		return err
 	}
-	err = waitLoadbalancerDeleted(lbaas.lb, loadbalancer.ID)
+	err = waitLoadbalancerDeleted(ctx, l.gclient, lb.ID)
 	if err != nil {
 		return fmt.Errorf("failed to delete loadbalancer: %v", err)
 	}
@@ -586,14 +592,6 @@ func getListenersByLoadBalancerID(ctx context.Context, client *gobizfly.Client, 
 		return nil, err
 	}
 	return listeners, nil
-}
-
-func getPoolsByLoadBalancerID(ctx context.Context, client *gobizfly.Client, loadbalancerID string) ([]*gobizfly.Pool, error) {
-	pools, err := client.Pool.List(ctx, loadbalancerID, &gobizfly.ListOptions{})
-	if err != nil {
-		return nil, err
-	}
-	return pools, nil
 }
 
 // get listener for a port or nil if does not exist

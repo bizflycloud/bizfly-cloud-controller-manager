@@ -1,7 +1,7 @@
 go 1.13
 
 require (
-	github.com/bizflycloud/gobizfly v0.0.0-20200415134205-d25de776bfc1
+	github.com/bizflycloud/gobizfly v0.0.0-20200417021110-a2e0f8c9a648
 	github.com/mitchellh/mapstructure v1.1.2
 	github.com/spf13/pflag v1.0.5
 	k8s.io/api v0.18.1
