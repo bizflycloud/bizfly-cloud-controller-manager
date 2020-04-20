@@ -18,9 +18,9 @@ const (
 	ProviderName  string = "bizflycloud"
 	defaultRegion string = "Ha-Noi"
 
-	bizflyCloudEmail    string = "BIZFLYCLOUD_EMAIL_ENV"
-	bizflyCloudPassword string = "BIZFLYCLOUD_PASSWORD_ENV"
-	bizflyCloudRegion   string = "BIZFLYCLOUD_REGION_ENV"
+	bizflyCloudEmailEnvName    string = "BIZFLYCLOUD_EMAIL"
+	bizflyCloudPasswordEnvName string = "BIZFLYCLOUD_PASSWORD"
+	bizflyCloudRegionEnvName   string = "BIZFLYCLOUD_REGION"
 )
 
 var (
@@ -35,9 +35,9 @@ type cloud struct {
 }
 
 func newCloud() (cloudprovider.Interface, error) {
-	username := os.Getenv(bizflyCloudEmail)
-	password := os.Getenv(bizflyCloudPassword)
-	region := os.Getenv(bizflyCloudRegion)
+	username := os.Getenv(bizflyCloudEmailEnvName)
+	password := os.Getenv(bizflyCloudPasswordEnvName)
+	region := os.Getenv(bizflyCloudRegionEnvName)
 
 	if username == "" {
 		return nil, errors.New("You have to provide username variable")
