@@ -2,6 +2,7 @@ package bizfly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,11 +15,12 @@ import (
 
 const (
 	// ProviderName specifies the name for the Bizfly provider
-	ProviderName string = "bizflycloud"
+	ProviderName  string = "bizflycloud"
+	defaultRegion string = "Ha-Noi"
 
-	bizflyCloudEmail    string = "BIZFLYCLOUD_EMAIL"
-	bizflyCloudPassword string = "BIZFLYCLOUD_PASSWORD"
-	bizflyCloudRegion   string = "BIZFLYCLOUD_REGION"
+	bizflyCloudEmail    string = "BIZFLYCLOUD_EMAIL_ENV"
+	bizflyCloudPassword string = "BIZFLYCLOUD_PASSWORD_ENV"
+	bizflyCloudRegion   string = "BIZFLYCLOUD_REGION_ENV"
 )
 
 var (
@@ -36,6 +38,16 @@ func newCloud() (cloudprovider.Interface, error) {
 	username := os.Getenv(bizflyCloudEmail)
 	password := os.Getenv(bizflyCloudPassword)
 	region := os.Getenv(bizflyCloudRegion)
+
+	if username == "" {
+		return nil, errors.New("You have to provide username variable")
+	}
+	if password == "" {
+		return nil, errors.New("You have to provide password variable")
+	}
+	if region == "" {
+		region = "Ha-Noi"
+	}
 
 	bizflyClient, err := gobizfly.NewClient(gobizfly.WithTenantName(username))
 	if err != nil {

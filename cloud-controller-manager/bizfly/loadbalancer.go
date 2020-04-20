@@ -8,12 +8,12 @@ import (
 	"time"
 
 	"github.com/bizflycloud/gobizfly"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
-	"k8s.io/klog"
-
 	cpoerrors "k8s.io/cloud-provider-openstack/pkg/util/errors"
+	"k8s.io/klog"
 )
 
 const (
@@ -36,9 +36,9 @@ const (
 	loadbalancerDeleteFactor    = 1.2
 	loadbalancerDeleteSteps     = 13
 
-	annoBCLoadBalancerNetworkType = "kubernetes.bizflycloud.vn/load-balancer-network-type"
+	annotationLoadBalancerNetworkType = "kubernetes.bizflycloud.vn/load-balancer-network-type"
 
-	annoBCLoadBalancerType = "kubernetes.bizflycloud.vn/load-balancer-type"
+	annotationLoadBalancerType = "kubernetes.bizflycloud.vn/load-balancer-type"
 )
 
 // ErrNotFound represents error if the resource not found.
@@ -79,11 +79,10 @@ func (l *loadbalancers) GetLoadBalancer(ctx context.Context, clusterName string,
 
 // cutString makes sure the string length doesn't exceed 255, which is usually the maximum string length in OpenStack.
 func cutString(original string) string {
-	ret := original
 	if len(original) > 255 {
-		ret = original[:255]
+		original = original[:255]
 	}
-	return ret
+	return original
 }
 
 // GetLoadBalancerName returns the constructed load balancer name.
@@ -111,8 +110,8 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	}
 
 	// Network type of load balancer: internal or external
-	networkType := getStringFromServiceAnnotation(apiService, annoBCLoadBalancerNetworkType, "external")
-	lbType := getStringFromServiceAnnotation(apiService, annoBCLoadBalancerType, "small")
+	networkType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerNetworkType, "external")
+	lbType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerType, "small")
 
 	// Affinity Configuration for pool
 	affinity := apiService.Spec.SessionAffinity
@@ -131,7 +130,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	loadbalancer, err := getLBByName(ctx, l.gclient, name)
 	klog.V(2).Infof("Get LB by Name: %v", err)
 	if err != nil {
-		if err != ErrNotFound {
+		if !errors.Is(err, ErrNotFound) {
 			return nil, fmt.Errorf("error getting loadbalancer for Service %s: %v", serviceName, err)
 		}
 		// Create new load balancer is the load balancer is not exist.
@@ -176,7 +175,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		}
 		pool, err := getPoolByListenerID(ctx, l.gclient, loadbalancer.ID, listener.ID)
 
-		if err != nil && err != ErrNotFound {
+		if err != nil && !errors.Is(err, ErrNotFound) {
 			return nil, fmt.Errorf("error getting pool for listener %s: %v", listener.ID, err)
 		}
 
@@ -203,7 +202,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			addr, err := nodeAddressForLB(node)
 
 			if err != nil {
-				if err == ErrNotFound {
+				if errors.Is(err, ErrNoAddressFound) {
 					// Node failure, do not create member
 					klog.Warningf("Failed to create LB pool member for node %s: %v", node.Name, err)
 					continue
@@ -255,7 +254,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		klog.V(4).Infof("Deleting obsolete listener %s:", listener.ID)
 		// get pool for listener
 		pool, err := getPoolByListenerID(ctx, l.gclient, loadbalancer.ID, listener.ID)
-		if err != nil && err != ErrNotFound {
+		if err != nil && !errors.Is(err, ErrNotFound) {
 			return nil, fmt.Errorf("error getting pool for obsolete listener %s: %v", listener.ID, err)
 		}
 		if pool != nil {
@@ -266,17 +265,15 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			if err != nil && !cpoerrors.IsNotFound(err) {
 				return nil, fmt.Errorf("error getting members for pool %s: %v", pool.ID, err)
 			}
-			if members != nil {
-				for _, member := range members {
-					klog.V(4).Infof("Deleting obsolete member %s for pool %s address %s", member.ID, pool.ID, member.Address)
-					err := l.gclient.Member.Delete(ctx, pool.ID, member.ID)
-					if err != nil && !cpoerrors.IsNotFound(err) {
-						return nil, fmt.Errorf("error deleting obsolete member %s for pool %s address %s: %v", member.ID, pool.ID, member.Address, err)
-					}
-					provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
-					if err != nil {
-						return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %s", provisioningStatus)
-					}
+			for _, member := range members {
+				klog.V(4).Infof("Deleting obsolete member %s for pool %s address %s", member.ID, pool.ID, member.Address)
+				err := l.gclient.Member.Delete(ctx, pool.ID, member.ID)
+				if err != nil && !cpoerrors.IsNotFound(err) {
+					return nil, fmt.Errorf("error deleting obsolete member %s for pool %s address %s: %v", member.ID, pool.ID, member.Address, err)
+				}
+				provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+				if err != nil {
+					return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %s", provisioningStatus)
 				}
 			}
 			klog.V(4).Infof("Deleting obsolete pool %s for listener %s", pool.ID, listener.ID)
@@ -325,11 +322,10 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 	lb, err := getLBByName(ctx, l.gclient, name)
 
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return fmt.Errorf("loadbalancer does not exist for Service %s", serviceName)
+		}
 		return err
-	}
-
-	if lb == nil {
-		return fmt.Errorf("loadbalancer does not exist for Service %s", serviceName)
 	}
 
 	type portKey struct {
@@ -693,7 +689,8 @@ func getPoolByListenerID(ctx context.Context, client *gobizfly.Client, loadbalan
 
 	if len(listenerPools) == 0 {
 		return nil, ErrNotFound
-	} else if len(listenerPools) > 1 {
+	}
+	if len(listenerPools) > 1 {
 		return nil, ErrMultipleResults
 	}
 	return listenerPools[0], nil
