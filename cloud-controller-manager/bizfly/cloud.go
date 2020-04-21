@@ -8,7 +8,6 @@ import (
 	"os"
 
 	"github.com/bizflycloud/gobizfly"
-
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog"
 )
@@ -46,12 +45,12 @@ func newCloud() (cloudprovider.Interface, error) {
 		return nil, errors.New("You have to provide password variable")
 	}
 	if region == "" {
-		region = "Ha-Noi"
+		region = defaultRegion
 	}
 
 	bizflyClient, err := gobizfly.NewClient(gobizfly.WithTenantName(username))
 	if err != nil {
-		return nil, fmt.Errorf("Cannot create BizFly Cloud Client: %s", err)
+		return nil, fmt.Errorf("Cannot create BizFly Cloud Client: %w", err)
 	}
 
 	token, err := bizflyClient.Token.Create(
@@ -61,7 +60,7 @@ func newCloud() (cloudprovider.Interface, error) {
 			Password: password})
 
 	if err != nil {
-		return nil, fmt.Errorf("Cannot create token: %s", err)
+		return nil, fmt.Errorf("Cannot create token: %w", err)
 	}
 
 	bizflyClient.SetKeystoneToken(token.KeystoneToken)

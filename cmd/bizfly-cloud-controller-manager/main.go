@@ -6,14 +6,11 @@ import (
 	"os"
 	"time"
 
-	"k8s.io/component-base/logs"
-	"k8s.io/kubernetes/cmd/cloud-controller-manager/app"
-	// _ "k8s.io/kubernetes/pkg/client/metrics/prometheus" // for client metric registration
-	// _ "k8s.io/kubernetes/pkg/version/prometheus"        // for version metric registration
-
 	"git.paas.vn/BizFly-PaaS-Cloud/bizfly-cloud-controller-manager/cloud-controller-manager/bizfly"
 	_ "github.com/bizflycloud/gobizfly"
 	"github.com/spf13/pflag"
+	"k8s.io/component-base/logs"
+	"k8s.io/kubernetes/cmd/cloud-controller-manager/app"
 )
 
 func main() {

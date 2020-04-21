@@ -10,12 +10,11 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/cloud-provider-openstack/pkg/util/metadata"
 	"k8s.io/klog"
 
-	"github.com/mitchellh/mapstructure"
-	"k8s.io/cloud-provider-openstack/pkg/util/metadata"
-
 	"github.com/bizflycloud/gobizfly"
+	"github.com/mitchellh/mapstructure"
 )
 
 const (
@@ -241,7 +240,7 @@ func serverIDFromProviderID(providerID string) (instanceID string, err error) {
 
 	matches := providerIDRegexp.FindStringSubmatch(providerID)
 	if len(matches) != 2 {
-		return "", fmt.Errorf("ProviderID \"%s\" didn't match expected format \"bizflycloud:///InstanceID\"", providerID)
+		return "", fmt.Errorf("ProviderID \"%w\" didn't match expected format \"bizflycloud:///InstanceID\"", providerID)
 	}
 	return matches[1], nil
 }
