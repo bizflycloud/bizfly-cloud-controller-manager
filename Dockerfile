@@ -5,7 +5,7 @@
 FROM golang:alpine3.11  AS build-env
 WORKDIR /app
 ADD . /app
-RUN cd /app && CGO_ENABLED=0 GO111MODULE=on GOARCH=amd64 go build -o bizfly-cloud-controller-manager cmd/bizfly-cloud-controller-manager/main.go
+RUN cd /app && GO111MODULE=on GOARCH=amd64 go build -o bizfly-cloud-controller-manager cmd/bizfly-cloud-controller-manager/main.go
 
 FROM amd64/alpine:3.11
 
