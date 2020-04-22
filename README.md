@@ -1,4 +1,4 @@
-# Kuberetes Cloud Controller Manager for BizFlyCloud
+# Kubernetes Cloud Controller Manager for BizFlyCloud
 
 `bizfly-cloud-controller-manager` is the Kubernetes cloud controller implmentation for BizFlyCloud. Read more about cloud controller managers [here](https://kubernetes.io/docs/tasks/administer-cluster/running-cloud-controller/). Running `bizfly-cloud-controller-manager` allows you to leverage many of the cloud provider features offered by BizFlyCloud on your kubernetes clusters.
 
@@ -6,20 +6,8 @@
 
 ### Requirements
 
-At the current state of Kubernetes, running cloud controller manager requires a few things. Please read through the requirements carefully as they are critical to running cloud controller manager on a Kubernetes cluster on DigtialOcean.
+At the current state of Kubernetes, running cloud controller manager requires a few things. Please read through the requirements carefully as they are critical to running cloud controller manager on a Kubernetes cluster on BizFlyCloud.
 
-### Version
-These are the recommended versions to run the cloud controller manager based on your Kubernetes version
-
-- Use CCM versions <= v0.1.1 if you're running Kubernetes version v1.7
-
-- Use CCM versions >= v0.1.2 if you're running Kubernetes version v1.8
-
-- Use CCM versions >= v0.1.4 if you're running Kubernetes version v1.9 - v1.10
-
-- Use CCM versions >= v0.1.5 if you're running Kubernetes version >= v1.10
-
-- Use CCM versions >= v0.1.8 if you're running Kubernetes version >= v1.11
 
 ### Parameters
 
