@@ -1,11 +1,12 @@
+module github.com/bizflycloud/bizfly-cloud-controller-manager
+
 go 1.13
 
 require (
 	github.com/bizflycloud/gobizfly v0.0.0-20200420071842-6c151195cdf4
 	github.com/mitchellh/mapstructure v1.1.2
 	github.com/spf13/pflag v1.0.5
-	golang.org/x/lint v0.0.0-20200302205851-738671d3881b // indirect
-	golang.org/x/tools v0.0.0-20200420001825-978e26b7c37c // indirect
+	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b // indirect
 	k8s.io/api v0.18.1
 	k8s.io/apimachinery v0.18.1
 	k8s.io/cloud-provider v0.18.1
@@ -58,5 +59,3 @@ replace k8s.io/kube-controller-manager => k8s.io/kube-controller-manager v0.18.1
 replace k8s.io/code-generator => k8s.io/code-generator v0.18.1
 
 replace github.com/gophercloud/gophercloud => github.com/gophercloud/gophercloud v0.9.0
-
-module git.paas.vn/BizFly-PaaS-Cloud/bizfly-cloud-controller-manager
