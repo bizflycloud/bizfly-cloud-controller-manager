@@ -1,4 +1,4 @@
-module git.paas.vn/BizFly-PaaS-Cloud/bizfly-cloud-controller-manager
+module github.com/bizflycloud/bizfly-cloud-controller-manager
 
 go 1.13
 

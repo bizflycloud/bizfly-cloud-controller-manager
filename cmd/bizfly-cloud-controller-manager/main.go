@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"git.paas.vn/BizFly-PaaS-Cloud/bizfly-cloud-controller-manager/cloud-controller-manager/bizfly"
+	"github.com/bizflycloud/bizfly-cloud-controller-manager/cloud-controller-manager/bizfly"
 	_ "github.com/bizflycloud/gobizfly"
 	"github.com/spf13/pflag"
 	"k8s.io/component-base/logs"
