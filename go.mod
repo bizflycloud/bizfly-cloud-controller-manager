@@ -59,4 +59,4 @@ replace k8s.io/code-generator => k8s.io/code-generator v0.18.1
 
 replace github.com/gophercloud/gophercloud => github.com/gophercloud/gophercloud v0.9.0
 
-module git.paas.vn/BizFly-PaaS-Cloud/bizfly-cloud-controller-manager
+module github.com/bizfly-cloud-controller-manager
