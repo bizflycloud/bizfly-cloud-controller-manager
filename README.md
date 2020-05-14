@@ -25,7 +25,7 @@ In the future, `--cloud-provider=external` will be the default. Learn more about
 
 ### Deployment
 
-- Update file `manifest/secret.yaml` with your email and password. *Note: In the near future, we will use another method for authentication.*
+- Update file `manifest/secret.yaml` with your application credential.
 
 ```
 apiVersion: v1
@@ -34,8 +34,8 @@ metadata:
   name: bizflycloud
   namespace: kube-system
 stringData:
-  email: "youremail@example.com"
-  password: "yourPassWORD"
+  application_credential_id: "youremail@example.com"
+  application_credential_secret: "yourPassWORD"
 ```
 
 - Run this command from the root of this repo:

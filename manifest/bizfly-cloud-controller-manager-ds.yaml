@@ -36,7 +36,7 @@ spec:
       serviceAccountName: cloud-controller-manager
       containers:
         - name: bizfly-cloud-controller-manager
-          image: cr-hn-1.vccloud.vn/17a1c3c952c84b3e84a82ddd48364938/bizfly-cloud-controller-manager:latest
+          image: cr-hn-1.vccloud.vn/31ff9581861a4d0ea4df5e7dda0f665d/bizfly-cloud-controller-manager:latest
           args:
             - /bin/bizfly-cloud-controller-manager
             - --v=1
@@ -54,16 +54,18 @@ spec:
             requests:
               cpu: 200m
           env:
-            - name: BIZFLYCLOUD_EMAIL
+            - name: BIZFLYCLOUD_AUTH_METHOD
+              value: application_credential
+            - name: BIZFLYCLOUD_APP_CREDENTIAL_ID
               valueFrom:
                 secretKeyRef:
                   name: bizflycloud
-                  key: email
-            - name: BIZFLYCLOUD_PASSWORD
+                  key: application_credential_id
+            - name: BIZFLYCLOUD_APP_CREDENTIAL_SECRET
               valueFrom:
                 secretKeyRef:
                   name: bizflycloud
-                  key: password
+                  key: application_credential_secret
       hostNetwork: true
       volumes:
       - hostPath:
