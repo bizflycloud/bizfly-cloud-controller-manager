@@ -17,9 +17,12 @@ const (
 	ProviderName  string = "bizflycloud"
 	defaultRegion string = "Ha-Noi"
 
+	bizflyCloudAuthMethod      string = "BIZFLYCLOUD_AUTH_METHOD"
 	bizflyCloudEmailEnvName    string = "BIZFLYCLOUD_EMAIL"
 	bizflyCloudPasswordEnvName string = "BIZFLYCLOUD_PASSWORD"
 	bizflyCloudRegionEnvName   string = "BIZFLYCLOUD_REGION"
+	bizflyCloudAppCredID       string = "BIZFLYCLOUD_APP_CREDENTIAL_ID"
+	bizflyCloudAppCredSecret   string = "BIZFLYCLOUD_APP_CREDENTIAL_SECRET"
 )
 
 var (
@@ -34,9 +37,12 @@ type cloud struct {
 }
 
 func newCloud() (cloudprovider.Interface, error) {
+	authMethod := os.Getenv(bizflyCloudAuthMethod)
 	username := os.Getenv(bizflyCloudEmailEnvName)
 	password := os.Getenv(bizflyCloudPasswordEnvName)
 	region := os.Getenv(bizflyCloudRegionEnvName)
+	appCredId := os.Getenv(bizflyCloudAppCredID)
+	appCredSecret := os.Getenv(bizflyCloudAppCredSecret)
 
 	if username == "" {
 		return nil, errors.New("You have to provide username variable")
@@ -56,8 +62,11 @@ func newCloud() (cloudprovider.Interface, error) {
 	token, err := bizflyClient.Token.Create(
 		ctx,
 		&gobizfly.TokenCreateRequest{
-			Username: username,
-			Password: password})
+			AuthMethod:    authMethod,
+			Username:      username,
+			Password:      password,
+			AppCredID:     appCredId,
+			AppCredSecret: appCredSecret})
 
 	if err != nil {
 		return nil, fmt.Errorf("Cannot create token: %w", err)
