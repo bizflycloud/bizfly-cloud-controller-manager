@@ -273,9 +273,31 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 					return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %w", provisioningStatus)
 				}
 			}
-			// TODO Create health Monitor for pool
 		}
-
+		monitorID := pool.HealthMonitorID
+		if monitorID == "" {
+			klog.V(4).Infof("Creating monitor for pool %s", pool.ID)
+			monitorProtocol := string(port.Protocol)
+			if port.Protocol == v1.ProtocolUDP {
+				monitorProtocol = "UDP-CONNECT"
+			}
+			monitor, err := l.gclient.HealthMonitor.Create(ctx, pool.ID, &gobizfly.HealthMonitorCreateRequest{
+				Name:           cutString(fmt.Sprintf("monitor_%d_%s)", portIndex, name)),
+				Type:           monitorProtocol,
+				Delay:          3,
+				TimeOut:        3,
+				MaxRetries:     3,
+				MaxRetriesDown: 3,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("error creating LB pool healthmonitor: %v", err)
+			}
+			provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+			if err != nil {
+				return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating monitor, current provisioning status %s", provisioningStatus)
+			}
+			monitorID = monitor.ID
+		}
 	}
 	// All remaining listeners are obsolete, delete
 	for _, listener := range oldListeners {
@@ -287,7 +309,14 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		}
 		if pool != nil {
 			// get and delete monitor
-			// TODO: delete monitor later when monitor entity is added
+			monitorID := pool.HealthMonitorID
+			if monitorID != "" {
+				klog.Infof("Deleting health monitor %s for pool %s", monitorID, pool.ID)
+				err := l.gclient.HealthMonitor.Delete(ctx, monitorID)
+				if err != nil {
+					return nil, fmt.Errorf("Error deleteing LB Pool healthmonitor %v", err)
+				}
+			}
 			// get and delete pool members
 			members, err := getMembersByPoolID(ctx, l.gclient, pool.ID)
 			if err != nil && !cpoerrors.IsNotFound(err) {
