@@ -19,10 +19,10 @@ package bizfly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"errors"
 
 	"github.com/bizflycloud/gobizfly"
 	cloudprovider "k8s.io/cloud-provider"
@@ -34,7 +34,7 @@ const (
 	ProviderName  string = "bizflycloud"
 	defaultRegion string = "HaNoi"
 	authPassword  string = "password"
-	authAppCred	  string = "application_credential"
+	authAppCred   string = "application_credential"
 	defaultApiUrl string = "https://manage.bizflycloud.vn"
 
 	bizflyCloudAuthMethod      string = "BIZFLYCLOUD_AUTH_METHOD"
@@ -43,7 +43,7 @@ const (
 	bizflyCloudRegionEnvName   string = "BIZFLYCLOUD_REGION"
 	bizflyCloudAppCredID       string = "BIZFLYCLOUD_APP_CREDENTIAL_ID"
 	bizflyCloudAppCredSecret   string = "BIZFLYCLOUD_APP_CREDENTIAL_SECRET"
-	bizflyCloudApiUrl		   string = "BIZFLYCLOUD_API_URL"
+	bizflyCloudApiUrl          string = "BIZFLYCLOUD_API_URL"
 )
 
 var (
@@ -67,7 +67,8 @@ func newCloud() (cloudprovider.Interface, error) {
 	apiUrl := os.Getenv(bizflyCloudApiUrl)
 
 	switch authMethod {
-		case authPassword: {
+	case authPassword:
+		{
 			if username == "" {
 				return nil, errors.New("You have to provide username variable")
 			}
@@ -75,7 +76,8 @@ func newCloud() (cloudprovider.Interface, error) {
 				return nil, errors.New("You have to provide password variable")
 			}
 		}
-		case authAppCred: {
+	case authAppCred:
+		{
 			if appCredId == "" {
 				return nil, errors.New("You have to provide application credential ID")
 			}
