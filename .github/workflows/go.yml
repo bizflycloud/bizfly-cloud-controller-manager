@@ -11,7 +11,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    container: docker:dind
+    #container: docker:dind
     steps:
 
     - name: Set up Go 1.x
