@@ -10,7 +10,8 @@ jobs:
 
   build:
     name: Build
-    runs-on: docker:dind
+    runs-on: ubuntu-latest
+    container: docker:dind
     steps:
 
     - name: Set up Go 1.x
@@ -29,15 +30,11 @@ jobs:
             curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
             dep ensure
         fi
-  container:
-    runs-on: ubuntu-latest
-    container: docker:dind
-    steps:
-      - run: |
+    - run: |
           echo This job does specify a container.
           echo It runs in the c
-      - name: Build
-        run: docker build -t bizfly-cloud-controller-manager:v0.1 -f Dockerfile .
+    - name: Build
+      run: docker build -t bizfly-cloud-controller-manager:v0.1 -f Dockerfile .
 
-      - name: Test
-        run: go test
+    - name: Test
+      run: go test
