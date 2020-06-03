@@ -29,9 +29,15 @@ jobs:
             curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
             dep ensure
         fi
+  container:
+    runs-on: ubuntu-latest
+    container: golang:alpine3.11
+    steps:
+      - run: |
+          echo This job does specify a container.
+          echo It runs in the c
+      - name: Build
+        run: docker build -t bizfly-cloud-controller-manager:v0.1 -f Dockerfile .
 
-    - name: Build
-      run: docker build -t bizfly-cloud-controller-manager:v0.1 -f Dockerfile .
-
-    - name: Test
-      run: go test
+      - name: Test
+        run: go test
