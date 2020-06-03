@@ -36,9 +36,9 @@ jobs:
           ls
     - name: Build images
       run: | 
-        echo super_secret: ${{ USER_CLOUD }} 
+        echo ${{ secrets.USER_CLOUD }} 
 
-        docker login -u ${{ USER_CLOUD }} -p ${{ PASS }}  cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/test
+        #docker login -u ${{ USER_CLOUD }} -p ${{ PASS }}  cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/test
         docker build -t cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/test:v01 -f Dockerfile .
         docker push cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/test:v01
     #- name: Build
