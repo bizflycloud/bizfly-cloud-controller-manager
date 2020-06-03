@@ -31,10 +31,10 @@ jobs:
             dep ensure
         fi
     - run: |
-          echo This job does specify a container.
-          echo It runs in the c
-    - name: Build
-      run: docker build -t bizfly-cloud-controller-manager:v0.1 -f Dockerfile .
+          docker --version
+          go version
+    #- name: Build
+    #  run: docker build -t bizfly-cloud-controller-manager:v0.1 -f Dockerfile .
 
-    - name: Test
-      run: go test
+    #- name: Test
+    #  run: go test
