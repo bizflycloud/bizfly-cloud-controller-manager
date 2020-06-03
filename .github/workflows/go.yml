@@ -31,7 +31,7 @@ jobs:
         fi
   container:
     runs-on: ubuntu-latest
-    container: golang:alpine3.11
+    container: docker:dind
     steps:
       - run: |
           echo This job does specify a container.
