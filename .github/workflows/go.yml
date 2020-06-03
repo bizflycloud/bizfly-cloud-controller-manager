@@ -10,7 +10,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: ubuntu-latest
+    runs-on: docker:dind
     steps:
 
     - name: Set up Go 1.x
@@ -31,7 +31,7 @@ jobs:
         fi
 
     - name: Build
-      run: go build 
+      run: docker build -t bizfly-cloud-controller-manager:v0.1 -f Dockerfile .
 
     - name: Test
       run: go test
