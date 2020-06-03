@@ -34,6 +34,9 @@ jobs:
           docker --version
           go version
           ls
+    - name: Build images
+      run: | 
+        docker build -t test:v01 -f Dockerfile .
     #- name: Build
     #  run: docker build -t bizfly-cloud-controller-manager:v0.1 -f Dockerfile .
 
