@@ -36,7 +36,9 @@ jobs:
           ls
     - name: Build images
       run: | 
-        docker login -u USER -p $PASS  cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/test
+        echo $USER
+        echo $PASS
+        docker login -u $USER -p $PASS  cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/test
         docker build -t cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/test:v01 -f Dockerfile .
         docker push cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/test:v01
     #- name: Build
