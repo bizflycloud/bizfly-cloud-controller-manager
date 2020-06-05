@@ -1,9 +1,9 @@
 name: Release to Docker and git
-# on:
-#   push:
-#     tags:
-#        - v*
-on: [push, pull_request]
+on:
+  push:
+    tags:
+       - v*
+#on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -18,18 +18,18 @@ jobs:
         run: |
           echo $RELEASE_VERSION
           echo ${{ steps.vars.outputs.tag }}
-  # docker:
-  #   name: Release on Docker hub
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - uses: actions/checkout@v1
-  #     - name: Publish to Registry
-  #       uses: elgohr/Publish-Docker-Github-Action@master
-  #       with:
-  #         registry: cr-hn-1.vccloud.vn
-  #         name: cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/bizfly-cloud-controller-manager:v0.1.1
-  #         username: ${{ secrets.USER_CLOUD }}
-  #         password: ${{ secrets.PASS }}
+  docker:
+    name: Release on Docker hub
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v1
+      - name: Publish to Registry
+        uses: elgohr/Publish-Docker-Github-Action@master
+        with:
+          registry: cr-hn-1.vccloud.vn
+          name: cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/bizfly-cloud-controller-manager:$RELEASE_VERSION
+          username: ${{ secrets.USER_CLOUD }}
+          password: ${{ secrets.PASS }}
   # git:
   #   name: Release on Git
   #   runs-on: ubuntu-latest
