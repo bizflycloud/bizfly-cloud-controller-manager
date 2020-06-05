@@ -5,29 +5,24 @@ on:
        - v*
 #on: [push, pull_request]
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v1
-      - name: Set output
-        id: vars
-        run: echo ::set-output name=tag::${GITHUB_REF}
-      - name: Check output
-        env:
-          RELEASE_VERSION: ${{ steps.vars.outputs.tag }}
-        run: |
-          echo $RELEASE_VERSION
-          echo ${{ steps.vars.outputs.tag }}
+  
   docker:
     name: Release on Docker hub
     runs-on: ubuntu-latest
     steps:
+      # - uses: actions/checkout@v1
+      # - name: Set env
+      #   run: echo ::set-env name=RELEASE_VERSION::${GITHUB_REF}
+      # - name: Test
+      #   run: |
+      #     echo $RELEASE_VERSION
+      #     echo ${{ env.RELEASE_VERSION }}
       - uses: actions/checkout@v1
       - name: Publish to Registry
         uses: elgohr/Publish-Docker-Github-Action@master
         with:
           registry: cr-hn-1.vccloud.vn
-          name: cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/bizfly-cloud-controller-manager:$RELEASE_VERSION
+          name: cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/bizfly-cloud-controller-manager:${GITHUB_REF#refs/*/}
           username: ${{ secrets.USER_CLOUD }}
           password: ${{ secrets.PASS }}
   # git:
