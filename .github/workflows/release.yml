@@ -28,19 +28,19 @@ jobs:
           name: cr-hn-1.vccloud.vn/e221625fe113449d8360f6ead78fb884/bizfly-cloud-controller-manager:${{ steps.vars.outputs.tag }}
           username: ${{ secrets.USER_CLOUD }}
           password: ${{ secrets.PASS }}
-  git:
-    name: Release on Git
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out code
-        uses: actions/checkout@v1
-      - name: Validates GO releaser config
-        uses: docker://goreleaser/goreleaser:latest
-        with:
-          args: check
-      - name: Create release on GitHub
-        uses: docker://goreleaser/goreleaser:latest
-        with:
-          args: release
-        env:
-          GITHUB_TOKEN: ${{secrets.TOKEN}}
+  # git:
+  #   name: Release on Git
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Check out code
+  #       uses: actions/checkout@v1
+  #     - name: Validates GO releaser config
+  #       uses: docker://goreleaser/goreleaser:latest
+  #       with:
+  #         args: check
+  #     - name: Create release on GitHub
+  #       uses: docker://goreleaser/goreleaser:latest
+  #       with:
+  #         args: release
+  #       env:
+  #         GITHUB_TOKEN: ${{secrets.TOKEN}}
