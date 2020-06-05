@@ -1,6 +1,6 @@
 name: Release to Docker and git
 on:
-  create:
+  push:
     tags:
        - v*
 #on: [push, pull_request]
