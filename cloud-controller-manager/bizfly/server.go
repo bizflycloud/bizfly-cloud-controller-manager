@@ -224,7 +224,7 @@ func serverByName(ctx context.Context, client *gobizfly.Client, name types.NodeN
 	}
 
 	for _, server := range servers {
-		if server.Name == string(name) {
+		if strings.ToLower(server.Name) == string(name) {
 			return server, nil
 		}
 	}
