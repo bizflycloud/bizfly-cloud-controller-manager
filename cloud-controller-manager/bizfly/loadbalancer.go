@@ -277,13 +277,14 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		monitorID := pool.HealthMonitorID
 		if monitorID == "" {
 			klog.V(4).Infof("Creating monitor for pool %s", pool.ID)
-			monitorProtocol := string(port.Protocol)
-			if port.Protocol == v1.ProtocolUDP {
-				monitorProtocol = "UDP-CONNECT"
-			}
+			//monitorProtocol := string(port.Protocol)
+			//if port.Protocol == v1.ProtocolUDP {
+			//	monitorProtocol = "UDP-CONNECT"
+			//}
+			//TODO use http monitor
 			monitor, err := l.gclient.HealthMonitor.Create(ctx, pool.ID, &gobizfly.HealthMonitorCreateRequest{
 				Name:           cutString(fmt.Sprintf("monitor_%d_%s)", portIndex, name)),
-				Type:           monitorProtocol,
+				Type:           "TCP",
 				Delay:          3,
 				TimeOut:        3,
 				MaxRetries:     3,
