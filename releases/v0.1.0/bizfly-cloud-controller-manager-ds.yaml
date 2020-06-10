@@ -36,7 +36,7 @@ spec:
       serviceAccountName: cloud-controller-manager
       containers:
         - name: bizfly-cloud-controller-manager
-          image: cr-hn-1.vccloud.vn/31ff9581861a4d0ea4df5e7dda0f665d/bizfly-cloud-controller-manager:v0.1
+          image: cr-hn-1.vccloud.vn/31ff9581861a4d0ea4df5e7dda0f665d/bizfly-cloud-controller-manager:v0.1.0
           args:
             - /bin/bizfly-cloud-controller-manager
             - --v=1
