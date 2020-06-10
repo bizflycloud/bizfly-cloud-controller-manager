@@ -44,6 +44,7 @@ const (
 	bizflyCloudAppCredID       string = "BIZFLYCLOUD_APP_CREDENTIAL_ID"
 	bizflyCloudAppCredSecret   string = "BIZFLYCLOUD_APP_CREDENTIAL_SECRET"
 	bizflyCloudApiUrl          string = "BIZFLYCLOUD_API_URL"
+	bizflyCloudTenantID        string = "BIZFLYCLOUD_TENANT_ID"
 )
 
 var (
@@ -65,6 +66,7 @@ func newCloud() (cloudprovider.Interface, error) {
 	appCredId := os.Getenv(bizflyCloudAppCredID)
 	appCredSecret := os.Getenv(bizflyCloudAppCredSecret)
 	apiUrl := os.Getenv(bizflyCloudApiUrl)
+	tenantId := os.Getenv(bizflyCloudTenantID)
 
 	switch authMethod {
 	case authPassword:
@@ -95,7 +97,7 @@ func newCloud() (cloudprovider.Interface, error) {
 		apiUrl = defaultApiUrl
 	}
 
-	bizflyClient, err := gobizfly.NewClient(gobizfly.WithTenantName(username), gobizfly.WithAPIUrl(apiUrl))
+	bizflyClient, err := gobizfly.NewClient(gobizfly.WithTenantName(username), gobizfly.WithAPIUrl(apiUrl), gobizfly.WithTenantID(tenantId))
 	if err != nil {
 		return nil, fmt.Errorf("Cannot create BizFly Cloud Client: %w", err)
 	}
