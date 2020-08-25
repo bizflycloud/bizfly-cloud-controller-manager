@@ -32,7 +32,7 @@ import (
 const (
 	// ProviderName specifies the name for the Bizfly provider
 	ProviderName  string = "bizflycloud"
-	defaultRegion string = "HaNoi"
+	defaultRegion string = "HN"
 	authPassword  string = "password"
 	authAppCred   string = "application_credential"
 	defaultApiUrl string = "https://manage.bizflycloud.vn"
@@ -97,7 +97,7 @@ func newCloud() (cloudprovider.Interface, error) {
 		apiUrl = defaultApiUrl
 	}
 
-	bizflyClient, err := gobizfly.NewClient(gobizfly.WithTenantName(username), gobizfly.WithAPIUrl(apiUrl), gobizfly.WithTenantID(tenantId))
+	bizflyClient, err := gobizfly.NewClient(gobizfly.WithTenantName(username), gobizfly.WithAPIUrl(apiUrl), gobizfly.WithTenantID(tenantId), gobizfly.WithRegionName(region))
 	if err != nil {
 		return nil, fmt.Errorf("Cannot create BizFly Cloud Client: %w", err)
 	}
