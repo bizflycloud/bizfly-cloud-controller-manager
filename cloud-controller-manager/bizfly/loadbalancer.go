@@ -103,7 +103,7 @@ func cutString(original string) string {
 
 // GetLoadBalancerName returns the constructed load balancer name.
 func (l *loadbalancers) GetLoadBalancerName(ctx context.Context, clusterName string, service *v1.Service) string {
-	name := fmt.Sprintf("kube_service_%s_%s_%s", clusterName, service.Namespace, service.Name)
+	name := fmt.Sprintf("BKE_%s_%s_%s", clusterName, service.Namespace, service.Name)
 	return cutString(name)
 }
 
