@@ -191,28 +191,10 @@ func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID s
 
 // nodeAddresses returns addresses of server
 func nodeAdddresses(server *gobizfly.Server) ([]v1.NodeAddress, error) {
-	type address struct {
-		Address string `mapstructure:"addr"`
-		Version int    `mapstructure:"version"`
-	}
-	var serverAddresses map[string][]address
-
 	var addresses []v1.NodeAddress
-
 	addresses = append(addresses, v1.NodeAddress{Type: v1.NodeHostName, Address: server.Name})
-
-	if err := mapstructure.Decode(server.Addresses, &serverAddresses); err != nil {
-		klog.V(1).Infof("Cannot decode server: %v", err)
-		return nil, err
-	}
-
-	for net, addr := range serverAddresses {
-		if strings.Contains(net, "EXT") {
-			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: addr[0].Address})
-		} else {
-			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: addr[0].Address})
-		}
-	}
+	addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: server.IPAddresses.LanAddresses[0].Address})
+	addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: server.IPAddresses.WanV4Addresses[0].Address})
 	return addresses, nil
 }
 
