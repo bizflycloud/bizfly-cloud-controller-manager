@@ -35,11 +35,11 @@ import (
 const (
 	// loadbalancerActive* is configuration of exponential backoff for
 	// going into ACTIVE loadbalancer provisioning status. Starting with 1
-	// seconds, multiplying by 1.2 with each step and taking 19 steps at maximum
-	// it will time out after 128s, which roughly corresponds to 120s
+	// seconds, multiplying by 1.2 with each step and taking 25 steps at maximum
+	// it will time out after 392s, which roughly corresponds to 390s
 	loadbalancerActiveInitDelay = 1 * time.Second
 	loadbalancerActiveFactor    = 1.2
-	loadbalancerActiveSteps     = 19
+	loadbalancerActiveSteps     = 25
 
 	activeStatus = "ACTIVE"
 	errorStatus  = "ERROR"
