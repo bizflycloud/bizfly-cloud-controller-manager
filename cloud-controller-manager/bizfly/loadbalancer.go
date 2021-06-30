@@ -290,10 +290,6 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			for _, member := range members {
 				klog.V(4).Infof("Deleting obsolete member %s for pool %s address %s", member.ID, pool.ID, member.Address)
 				err := l.gclient.Member.Delete(ctx, pool.ID, member.ID)
-				if err != nil && !cpoerrors.IsNotFound(err) {
-					klog.Errorf("error deleting obsolete member %w for pool %w address %w: %v", member.ID, pool.ID, member.Address, err)
-					return nil, fmt.Errorf("error deleting obsolete member %w for pool %w address %w: %v", member.ID, pool.ID, member.Address, err)
-				}
 				provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
 				if err != nil {
 					klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %w", provisioningStatus)
