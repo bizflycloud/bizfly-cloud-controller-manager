@@ -43,6 +43,8 @@ const (
 
 	activeStatus = "ACTIVE"
 	errorStatus  = "ERROR"
+	PROXY_PROTOCOL = "PROXY"
+	ROUND_ROBIN = "ROUND_ROBIN"
 
 	// loadbalancerDelete* is configuration of exponential backoff for
 	// waiting for delete operation to complete. Starting with 1
@@ -55,6 +57,7 @@ const (
 	annotationLoadBalancerNetworkType = "kubernetes.bizflycloud.vn/load-balancer-network-type"
 
 	annotationLoadBalancerType = "kubernetes.bizflycloud.vn/load-balancer-type"
+	annotationEnableProxyProtocol = "kubernetes.bizflycloud.vn/enable-proxy-protocol"
 )
 
 // ErrNotFound represents error if the resource not found.
@@ -101,6 +104,27 @@ func cutString(original string) string {
 	return original
 }
 
+//getBoolFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's boolean value or a specified defaultSetting
+func getBoolFromServiceAnnotation(service *v1.Service, annotationKey string, defaultSetting bool) (bool, error) {
+	klog.V(4).Infof("getBoolFromServiceAnnotation(%s/%s, %v, %v)", service.Namespace, service.Name, annotationKey, defaultSetting)
+	if annotationValue, ok := service.Annotations[annotationKey]; ok {
+		returnValue := false
+		switch annotationValue {
+		case "true":
+			returnValue = true
+		case "false":
+			returnValue = false
+		default:
+			return returnValue, fmt.Errorf("unknown %s annotation: %v, specify \"true\" or \"false\" ", annotationKey, annotationValue)
+		}
+
+		klog.V(4).Infof("Found a Service Annotation: %v = %v", annotationKey, returnValue)
+		return returnValue, nil
+	}
+	klog.V(4).Infof("Could not find a Service Annotation; falling back to default setting: %v = %v", annotationKey, defaultSetting)
+	return defaultSetting, nil
+}
+
 // GetLoadBalancerName returns the constructed load balancer name.
 func (l *loadbalancers) GetLoadBalancerName(ctx context.Context, clusterName string, service *v1.Service) string {
 	name := fmt.Sprintf("kube_service_%s_%s_%s", clusterName, service.Namespace, service.Name)
@@ -128,7 +152,10 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	// Network type of load balancer: internal or external
 	networkType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerNetworkType, "external")
 	lbType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerType, "small")
-
+	useProxyProtocol, err := getBoolFromServiceAnnotation(apiService, annotationEnableProxyProtocol, false)
+	if err != nil {
+		return nil, err
+	}
 	// Affinity Configuration for pool
 	affinity := apiService.Spec.SessionAffinity
 	var persistence *gobizfly.SessionPersistence
@@ -204,7 +231,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		if pool == nil {
 			// Create a new pool
 			// use protocol of listener
-			pool, err = l.createPoolForListener(ctx, listener, portIndex, loadbalancer.ID, name, persistence)
+			pool, err = l.createPoolForListener(ctx, listener, portIndex, loadbalancer.ID, name, persistence, useProxyProtocol)
 			if err != nil {
 				return nil, err
 			}
@@ -660,13 +687,16 @@ func (l *loadbalancers) createListener(ctx context.Context, portIndex int, port 
 	return listener, nil
 }
 
-func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gobizfly.Listener, portIndex int, lbID, lbName string, sessionPersistence *gobizfly.SessionPersistence) (*gobizfly.Pool, error) {
+func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gobizfly.Listener, portIndex int, lbID, lbName string, sessionPersistence *gobizfly.SessionPersistence, useProxyProtocol bool) (*gobizfly.Pool, error) {
 	poolProtocol := string(listener.Protocol)
+	if useProxyProtocol {
+		poolProtocol = PROXY_PROTOCOL
+	}
 	poolName := cutString(fmt.Sprintf("pool_%d_%s", portIndex, lbName))
 	pcr := gobizfly.PoolCreateRequest{
 		Name:               &poolName,
 		Protocol:           poolProtocol,
-		LBAlgorithm:        "ROUND_ROBIN", // TODO use annotation for algorithm
+		LBAlgorithm:        ROUND_ROBIN, // TODO use annotation for algorithm
 		SessionPersistence: sessionPersistence,
 		ListenerID:         &listener.ID,
 	}
