@@ -734,14 +734,11 @@ func toListenersProtocol(protocol v1.Protocol) string {
 
 // Check if a member exists for node
 func memberExists(members []*gobizfly.Member, addr string, port int) bool {
-	klog.Infof("Check member %s:%d", addr, port)
 	for _, member := range members {
-		klog.Infof("Member %s:%d", member.Address, member.ProtocolPort)
 		if member.Address == addr && member.ProtocolPort == port {
 			return true
 		}
 	}
-	klog.Info("Member is not exist")
 	return false
 }
 
