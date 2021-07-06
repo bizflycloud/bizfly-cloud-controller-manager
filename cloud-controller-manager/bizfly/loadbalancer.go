@@ -235,7 +235,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		if pool == nil {
 			// Create a new pool
 			// use protocol of listener
-			pool, err = l.createPoolForListener(ctx, listener, portIndex, loadbalancer.ID, name, persistence, poolProtocol)
+			pool, err = l.createPool(ctx, listener.ID, portIndex, loadbalancer.ID, name, persistence, poolProtocol)
 			klog.Infof("Pool created for listener %s: %s", listener.ID, pool.ID)
 			if err != nil {
 				return nil, err
@@ -250,7 +250,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 				// Create a new pool if protocol is changed
 				// use protocol of listener
 				oldPoolID := pool.ID
-				pool, err = l.createPoolForListener(ctx, listener, portIndex, loadbalancer.ID, name, persistence, poolProtocol)
+				pool, err = l.createPool(ctx, "", portIndex, loadbalancer.ID, name, persistence, poolProtocol)
 				klog.Infof("Pool created for listener %s: %s", listener.ID, pool.ID)
 				if err != nil {
 					return nil, err
@@ -717,7 +717,7 @@ func (l *loadbalancers) createListener(ctx context.Context, portIndex int, port 
 	return listener, nil
 }
 
-func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gobizfly.Listener, portIndex int, lbID, lbName string, sessionPersistence *gobizfly.SessionPersistence, poolProtocol string) (*gobizfly.Pool, error) {
+func (l *loadbalancers) createPool(ctx context.Context, listenerID string, portIndex int, lbID, lbName string, sessionPersistence *gobizfly.SessionPersistence, poolProtocol string) (*gobizfly.Pool, error) {
 
 	poolName := cutString(fmt.Sprintf("pool_%d_%s", portIndex, lbName))
 	pcr := gobizfly.PoolCreateRequest{
@@ -725,14 +725,16 @@ func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gob
 		Protocol:           poolProtocol,
 		LBAlgorithm:        ROUND_ROBIN, // TODO use annotation for algorithm
 		SessionPersistence: sessionPersistence,
-		ListenerID:         &listener.ID,
+	}
+	if listenerID != "" {
+		pcr.ListenerID = &listenerID
 	}
 
-	klog.Infof("Creating pool for listener %s using protocol %s", listener.ID, poolProtocol)
+	klog.Infof("Creating pool for listener %s using protocol %s", listenerID, poolProtocol)
 	pool, err := l.gclient.Pool.Create(ctx, lbID, &pcr)
 	if err != nil {
-		klog.Errorf("error creating pool for listener %w: %v", listener.ID, err)
-		return nil, fmt.Errorf("error creating pool for listener %w: %v", listener.ID, err)
+		klog.Errorf("error creating pool for listener %w: %v", listenerID, err)
+		return nil, fmt.Errorf("error creating pool for listener %w: %v", listenerID, err)
 	}
 	return pool, nil
 }

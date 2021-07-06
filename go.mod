@@ -3,7 +3,7 @@ module github.com/bizflycloud/bizfly-cloud-controller-manager
 go 1.13
 
 require (
-	github.com/bizflycloud/gobizfly v0.0.0-20210625033714-490409a76297
+	github.com/bizflycloud/gobizfly v0.0.0-20210706022052-aab77fc2e4a7
 	github.com/mitchellh/mapstructure v1.1.2
 	github.com/spf13/pflag v1.0.5
 	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b // indirect
