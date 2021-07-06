@@ -227,11 +227,15 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			klog.Errorf("error getting pool for listener %w: %v", listener.ID, err)
 			return nil, fmt.Errorf("error getting pool for listener %w: %v", listener.ID, err)
 		}
+		poolProtocol := listener.Protocol
+		if useProxyProtocol {
+			poolProtocol = PROXY_PROTOCOL
+		}
 
 		if pool == nil {
 			// Create a new pool
 			// use protocol of listener
-			pool, err = l.createPoolForListener(ctx, listener, portIndex, loadbalancer.ID, name, persistence, useProxyProtocol)
+			pool, err = l.createPool(ctx, listener.ID, portIndex, loadbalancer.ID, name, persistence, poolProtocol)
 			klog.Infof("Pool created for listener %s: %s", listener.ID, pool.ID)
 			if err != nil {
 				return nil, err
@@ -240,6 +244,37 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			if err != nil {
 				klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %w", provisioningStatus)
 				return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %w", provisioningStatus)
+			}
+		} else {
+			if ( useProxyProtocol && pool.Protocol != PROXY_PROTOCOL ) || (!useProxyProtocol && pool.Protocol == PROXY_PROTOCOL){
+				// Create a new pool if protocol is changed
+				// use protocol of listener
+				oldPoolID := pool.ID
+				pool, err = l.createPool(ctx, "", portIndex, loadbalancer.ID, name, persistence, poolProtocol)
+				klog.Infof("Pool created for listener %s: %s", listener.ID, pool.ID)
+				if err != nil {
+					return nil, err
+				}
+				provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+				if err != nil {
+					klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %w", provisioningStatus)
+					return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %w", provisioningStatus)
+				}
+
+				klog.Infof("Update listener %s to use new pool %s", listener.ID, pool.ID)
+				_ = l.updateListener(ctx, listener.ID, pool.ID)
+				provisioningStatus, err = waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+				if err != nil {
+					klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %w", provisioningStatus)
+					return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %w", provisioningStatus)
+				}
+				klog.Infof("Delete old pool of listener %s: %s", listener.ID, oldPoolID)
+				_ = l.deletePool(ctx, oldPoolID)
+				provisioningStatus, err = waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+				if err != nil {
+					klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %w", provisioningStatus)
+					return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %w", provisioningStatus)
+				}
 			}
 		}
 
@@ -682,27 +717,43 @@ func (l *loadbalancers) createListener(ctx context.Context, portIndex int, port 
 	return listener, nil
 }
 
-func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gobizfly.Listener, portIndex int, lbID, lbName string, sessionPersistence *gobizfly.SessionPersistence, useProxyProtocol bool) (*gobizfly.Pool, error) {
-	poolProtocol := string(listener.Protocol)
-	if useProxyProtocol {
-		poolProtocol = PROXY_PROTOCOL
-	}
+func (l *loadbalancers) createPool(ctx context.Context, listenerID string, portIndex int, lbID, lbName string, sessionPersistence *gobizfly.SessionPersistence, poolProtocol string) (*gobizfly.Pool, error) {
+
 	poolName := cutString(fmt.Sprintf("pool_%d_%s", portIndex, lbName))
 	pcr := gobizfly.PoolCreateRequest{
 		Name:               &poolName,
 		Protocol:           poolProtocol,
 		LBAlgorithm:        ROUND_ROBIN, // TODO use annotation for algorithm
 		SessionPersistence: sessionPersistence,
-		ListenerID:         &listener.ID,
+	}
+	if listenerID != "" {
+		pcr.ListenerID = &listenerID
 	}
 
-	klog.Infof("Creating pool for listener %s using protocol %s", listener.ID, poolProtocol)
+	klog.Infof("Creating pool for listener %s using protocol %s", listenerID, poolProtocol)
 	pool, err := l.gclient.Pool.Create(ctx, lbID, &pcr)
 	if err != nil {
-		klog.Errorf("error creating pool for listener %w: %v", listener.ID, err)
-		return nil, fmt.Errorf("error creating pool for listener %w: %v", listener.ID, err)
+		klog.Errorf("error creating pool for listener %w: %v", listenerID, err)
+		return nil, fmt.Errorf("error creating pool for listener %w: %v", listenerID, err)
 	}
 	return pool, nil
+}
+
+func (l *loadbalancers) deletePool(ctx context.Context, poolID string) error {
+	err := l.gclient.Pool.Delete(ctx, poolID)
+	if err != nil {
+		klog.Warningf("Error when delete pool %s: %v", poolID, err)
+	}
+	return nil
+}
+
+func (l *loadbalancers) updateListener(ctx context.Context, listenerID string, poolID string) error {
+	lur := &gobizfly.ListenerUpdateRequest{DefaultPoolID: &poolID}
+	_, err := l.gclient.Listener.Update(ctx, listenerID, lur)
+	if err != nil {
+		klog.Warningf("Error when update listener %s: %v", listenerID, err)
+	}
+	return nil
 }
 
 func getListenersByLoadBalancerID(ctx context.Context, client *gobizfly.Client, loadbalancerID string) ([]*gobizfly.Listener, error) {
