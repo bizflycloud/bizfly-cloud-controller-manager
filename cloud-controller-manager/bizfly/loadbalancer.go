@@ -745,7 +745,7 @@ func (l *loadbalancers) deletePool(ctx context.Context, poolID string) error {
 	return nil
 }
 
-func (l *loadbalancers) updateListener(ctx context.Context, listenerID string, poolID string) error {\
+func (l *loadbalancers) updateListener(ctx context.Context, listenerID string, poolID string) error {
 	lur := &gobizfly.ListenerUpdateRequest{DefaultPoolID: &poolID}
 	_, err := l.gclient.Listener.Update(ctx, listenerID, lur)
 	if err != nil {
