@@ -41,11 +41,15 @@ const (
 	loadbalancerActiveFactor    = 1.2
 	loadbalancerActiveSteps     = 25
 
-	activeStatus = "ACTIVE"
-	errorStatus  = "ERROR"
+	activeStatus   = "ACTIVE"
+	errorStatus    = "ERROR"
 	PROXY_PROTOCOL = "PROXY"
-	ROUND_ROBIN = "ROUND_ROBIN"
+	ROUND_ROBIN    = "ROUND_ROBIN"
 
+	INTERNAL_NETWORK_TYPE = "internal"
+	EXTERNAL_NETWORK_TYPE = "external"
+
+	SMALL_LB_TYPE = "small"
 	// loadbalancerDelete* is configuration of exponential backoff for
 	// waiting for delete operation to complete. Starting with 1
 	// seconds, multiplying by 1.2 with each step and taking 13 steps at maximum
@@ -56,8 +60,9 @@ const (
 
 	annotationLoadBalancerNetworkType = "kubernetes.bizflycloud.vn/load-balancer-network-type"
 
-	annotationLoadBalancerType = "kubernetes.bizflycloud.vn/load-balancer-type"
+	annotationLoadBalancerType    = "kubernetes.bizflycloud.vn/load-balancer-type"
 	annotationEnableProxyProtocol = "kubernetes.bizflycloud.vn/enable-proxy-protocol"
+	annotationVPCNetworkName      = "kubernetes.bizflycloud.vn/vpc-network-name"
 )
 
 // ErrNotFound represents error if the resource not found.
@@ -150,9 +155,10 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	}
 
 	// Network type of load balancer: internal or external
-	networkType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerNetworkType, "external")
-	lbType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerType, "small")
+	networkType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerNetworkType, EXTERNAL_NETWORK_TYPE)
+	lbType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerType, SMALL_LB_TYPE)
 	useProxyProtocol, err := getBoolFromServiceAnnotation(apiService, annotationEnableProxyProtocol, false)
+	vpcNetworkName := getStringFromServiceAnnotation(apiService, annotationVPCNetworkName, "")
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +186,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		// Create new load balancer is the load balancer is not exist.
 		klog.V(2).Infof("Creating loadbalancer %s", name)
 
-		loadbalancer, err = l.createLoadBalancer(ctx, apiService, name, clusterName, networkType, lbType)
+		loadbalancer, err = l.createLoadBalancer(ctx, name, networkType, lbType, vpcNetworkName)
 		if err != nil {
 			klog.Errorf("error creating loadbalancer %w: %v", name, err)
 			return nil, fmt.Errorf("error creating loadbalancer %w: %v", name, err)
@@ -648,11 +654,26 @@ func getIntFromServiceAnnotation(service *v1.Service, annotationKey string) (int
 	return 0, false
 }
 
-func (l *loadbalancers) createLoadBalancer(ctx context.Context, apiService *v1.Service, name string, clusterName string, networkType string, lbType string) (*gobizfly.LoadBalancer, error) {
+func (l *loadbalancers) createLoadBalancer(ctx context.Context, name string, networkType string, lbType string, vpcNetworkName string) (*gobizfly.LoadBalancer, error) {
+	vpcNetworkId := ""
+	if networkType == INTERNAL_NETWORK_TYPE {
+		// find vpc network id by name
+		vpcs, err := l.gclient.VPC.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, vpc := range vpcs {
+			if vpc.Name == vpcNetworkName {
+				vpcNetworkId = vpc.ID
+				break
+			}
+		}
+	}
 	lcr := gobizfly.LoadBalancerCreateRequest{
-		Name:        name,
-		NetworkType: networkType,
-		Type:        lbType,
+		Name:         name,
+		NetworkType:  networkType,
+		Type:         lbType,
+		VPCNetworkID: vpcNetworkId,
 	}
 	loadbalancer, err := l.gclient.LoadBalancer.Create(ctx, &lcr)
 	if err != nil {
