@@ -115,7 +115,7 @@ func newCloud() (cloudprovider.Interface, error) {
 		return nil, fmt.Errorf("Cannot create token: %w", err)
 	}
 
-	bizflyClient.SetKeystoneToken(token.KeystoneToken)
+	bizflyClient.SetKeystoneToken(token)
 
 	return &cloud{
 		client:        bizflyClient,
