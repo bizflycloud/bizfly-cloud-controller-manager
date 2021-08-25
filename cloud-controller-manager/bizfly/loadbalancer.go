@@ -63,6 +63,11 @@ const (
 	annotationLoadBalancerType    = "kubernetes.bizflycloud.vn/load-balancer-type"
 	annotationEnableProxyProtocol = "kubernetes.bizflycloud.vn/enable-proxy-protocol"
 	annotationVPCNetworkName      = "kubernetes.bizflycloud.vn/vpc-network-name"
+
+	annotationEnableIngressHostname = "kubernetes.bizflycloud.vn/enable-ingress-hostname"
+
+	// See https://nip.io
+	defaultProxyHostnameSuffix = "nip.io"
 )
 
 // ErrNotFound represents error if the resource not found.
@@ -158,6 +163,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	networkType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerNetworkType, EXTERNAL_NETWORK_TYPE)
 	lbType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerType, SMALL_LB_TYPE)
 	useProxyProtocol, err := getBoolFromServiceAnnotation(apiService, annotationEnableProxyProtocol, false)
+	enableIngressHostname, err := getBoolFromServiceAnnotation(apiService, annotationEnableIngressHostname, false)
 	vpcNetworkName := getStringFromServiceAnnotation(apiService, annotationVPCNetworkName, "")
 	if err != nil {
 		return nil, err
@@ -393,6 +399,15 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	status := &v1.LoadBalancerStatus{}
 	status.Ingress = []v1.LoadBalancerIngress{{IP: loadbalancer.VipAddress}}
 
+	// If the load balancer is using the PROXY protocol, expose its IP address via
+	// the Hostname field to prevent kube-proxy from injecting an iptables bypass.
+	// This is a workaround until
+	// https://github.com/kubernetes/enhancements/tree/master/keps/sig-network/1860-kube-proxy-IP-node-binding
+	// is implemented (maybe in v1.22).
+	if useProxyProtocol && enableIngressHostname {
+		fakeHostname := fmt.Sprintf("%s.%s", status.Ingress[0].IP, defaultProxyHostnameSuffix)
+		status.Ingress = []v1.LoadBalancerIngress{{Hostname: fakeHostname}}
+	}
 	return status, nil
 }
 
