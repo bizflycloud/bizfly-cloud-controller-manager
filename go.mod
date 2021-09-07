@@ -6,14 +6,13 @@ require (
 	github.com/bizflycloud/gobizfly v0.0.0-20210813092554-c93ef307dc11
 	github.com/mitchellh/mapstructure v1.1.2
 	github.com/spf13/pflag v1.0.5
-	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b // indirect
 	k8s.io/api v0.18.1
 	k8s.io/apimachinery v0.18.1
 	k8s.io/cloud-provider v0.18.1
 	k8s.io/cloud-provider-openstack v1.18.0
 	k8s.io/component-base v0.18.1
 	k8s.io/klog v1.0.0
-	k8s.io/kubernetes v1.18.1
+	k8s.io/kubernetes v1.18.19
 )
 
 replace k8s.io/api => k8s.io/api v0.18.1
