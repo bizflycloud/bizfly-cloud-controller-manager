@@ -154,16 +154,12 @@ func (s *servers) CurrentNodeName(ctx context.Context, hostname string) (types.N
 func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
 	klog.V(4).Infof("InstanceExistsByProviderID(%v) is called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
-	// if instance is not exist, return true
-	if errors.Is(err, gobizfly.ErrNotFound) {
-		return true, nil
-	}
 	if err != nil {
 		return false, err
 	}
 	_, err = serverByID(ctx, s.gclient, serverID)
-	if err != nil {
-		return false, err
+	if errors.Is(err, gobizfly.ErrNotFound) {
+		return false, nil
 	}
 	return true, nil
 }
@@ -175,10 +171,9 @@ func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID s
 	if err != nil {
 		return false, err
 	}
-
 	server, err := serverByID(ctx, s.gclient, serverID)
 	if errors.Is(err, gobizfly.ErrNotFound) {
-		return true, nil
+		return false, nil
 	}
 	if err != nil {
 		return false, err
