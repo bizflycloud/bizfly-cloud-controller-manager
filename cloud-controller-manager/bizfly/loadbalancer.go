@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+	"net"
 
 	"github.com/bizflycloud/gobizfly"
 	v1 "k8s.io/api/core/v1"
@@ -397,16 +398,19 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	}
 
 	status := &v1.LoadBalancerStatus{}
-	status.Ingress = []v1.LoadBalancerIngress{{IP: loadbalancer.VipAddress}}
-
-	// If the load balancer is using the PROXY protocol, expose its IP address via
-	// the Hostname field to prevent kube-proxy from injecting an iptables bypass.
-	// This is a workaround until
-	// https://github.com/kubernetes/enhancements/tree/master/keps/sig-network/1860-kube-proxy-IP-node-binding
-	// is implemented (maybe in v1.22).
-	if useProxyProtocol && enableIngressHostname {
-		fakeHostname := fmt.Sprintf("%s.%s", status.Ingress[0].IP, defaultProxyHostnameSuffix)
-		status.Ingress = []v1.LoadBalancerIngress{{Hostname: fakeHostname}}
+	if net.ParseIP(loadbalancer.VipAddress) != nil {
+		status.Ingress = []v1.LoadBalancerIngress{{IP: loadbalancer.VipAddress}}
+		// If the load balancer is using the PROXY protocol, expose its IP address via
+		// the Hostname field to prevent kube-proxy from injecting an iptables bypass.
+		// This is a workaround until
+		// https://github.com/kubernetes/enhancements/tree/master/keps/sig-network/1860-kube-proxy-IP-node-binding
+		// is implemented (maybe in v1.22).
+		if useProxyProtocol && enableIngressHostname {
+			fakeHostname := fmt.Sprintf("%s.%s", status.Ingress[0].IP, defaultProxyHostnameSuffix)
+			status.Ingress = []v1.LoadBalancerIngress{{Hostname: fakeHostname}}
+		}
+	} else {
+		status.Ingress = []v1.LoadBalancerIngress{{Hostname: loadbalancer.VipAddress}}
 	}
 	return status, nil
 }
