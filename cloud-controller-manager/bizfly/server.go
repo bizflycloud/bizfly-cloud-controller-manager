@@ -187,9 +187,12 @@ func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID s
 // nodeAddresses returns addresses of server
 func nodeAdddresses(server *gobizfly.Server) ([]v1.NodeAddress, error) {
 	var addresses []v1.NodeAddress
-	addresses = append(addresses, v1.NodeAddress{Type: v1.NodeHostName, Address: server.Name})
-	addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: server.IPAddresses.LanAddresses[0].Address})
-	addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: server.IPAddresses.WanV4Addresses[0].Address})
+	for i := range(server.IPAddresses.LanAddresses) {
+		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: server.IPAddresses.LanAddresses[i].Address})
+	}
+	for i := range(server.IPAddresses.WanV4Addresses) {
+		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: server.IPAddresses.WanV4Addresses[i].Address})
+	}
 	return addresses, nil
 }
 
