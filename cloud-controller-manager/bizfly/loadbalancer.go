@@ -51,6 +51,7 @@ const (
 	EXTERNAL_NETWORK_TYPE = "external"
 
 	SMALL_LB_TYPE = "small"
+	MEDIUM_LB_TYPE = "medium"
 	// loadbalancerDelete* is configuration of exponential backoff for
 	// waiting for delete operation to complete. Starting with 1
 	// seconds, multiplying by 1.2 with each step and taking 13 steps at maximum
@@ -162,7 +163,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 
 	// Network type of load balancer: internal or external
 	networkType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerNetworkType, EXTERNAL_NETWORK_TYPE)
-	lbType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerType, SMALL_LB_TYPE)
+	lbType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerType, MEDIUM_LB_TYPE)
 	useProxyProtocol, err := getBoolFromServiceAnnotation(apiService, annotationEnableProxyProtocol, false)
 	enableIngressHostname, err := getBoolFromServiceAnnotation(apiService, annotationEnableIngressHostname, false)
 	vpcNetworkName := getStringFromServiceAnnotation(apiService, annotationVPCNetworkName, "")
@@ -733,7 +734,7 @@ func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gob
 		Protocol:           poolProtocol,
 		LBAlgorithm:        ROUND_ROBIN, // TODO use annotation for algorithm
 		SessionPersistence: sessionPersistence,
-		ListenerID:         &listener.ID,
+		ListenerID:         listener.ID,
 	}
 
 	klog.Infof("Creating pool for listener %s using protocol %s", listener.ID, poolProtocol)
