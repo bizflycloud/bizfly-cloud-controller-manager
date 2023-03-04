@@ -97,7 +97,7 @@ func newCloud() (cloudprovider.Interface, error) {
 		apiUrl = defaultApiUrl
 	}
 
-	bizflyClient, err := gobizfly.NewClient(gobizfly.WithTenantName(username), gobizfly.WithAPIUrl(apiUrl), gobizfly.WithTenantID(tenantId), gobizfly.WithRegionName(region))
+	bizflyClient, err := gobizfly.NewClient(gobizfly.WithAPIUrl(apiUrl), gobizfly.WithProjectId(tenantId), gobizfly.WithRegionName(region))
 	if err != nil {
 		return nil, fmt.Errorf("Cannot create BizFly Cloud Client: %w", err)
 	}

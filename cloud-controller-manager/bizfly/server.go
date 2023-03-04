@@ -206,7 +206,7 @@ func serverByID(ctx context.Context, client *gobizfly.Client, id string) (*gobiz
 
 func serverByName(ctx context.Context, client *gobizfly.Client, name types.NodeName) (*gobizfly.Server, error) {
 	klog.V(5).Infof("Looking for server name: %s", string(name))
-	servers, err := client.Server.List(ctx, &gobizfly.ListOptions{})
+	servers, err := client.Server.List(ctx, &gobizfly.ServerListOptions{})
 	if err != nil {
 		return nil, err
 	}
