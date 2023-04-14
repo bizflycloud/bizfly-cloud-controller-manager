@@ -4,14 +4,19 @@ go 1.13
 
 require (
 	github.com/bizflycloud/gobizfly v1.0.10
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/grpc-ecosystem/grpc-gateway v1.14.5 // indirect
 	github.com/kr/pretty v0.2.0 // indirect
 	github.com/mitchellh/mapstructure v1.1.2
+	github.com/prometheus/client_golang v1.11.1 // indirect
 	github.com/spf13/pflag v1.0.5
-	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b // indirect
-	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
-	google.golang.org/genproto v0.0.0-20201019141844-1ed22bb0c154 // indirect
+	go.uber.org/zap v1.17.0 // indirect
+	golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4 // indirect
+	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
+	golang.org/x/text v0.3.5 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 	k8s.io/api v0.18.1
 	k8s.io/apimachinery v0.18.1
 	k8s.io/cloud-provider v0.20.15
@@ -64,3 +69,5 @@ replace k8s.io/kube-controller-manager => k8s.io/kube-controller-manager v0.18.1
 replace k8s.io/code-generator => k8s.io/code-generator v0.18.1
 
 replace github.com/gophercloud/gophercloud => github.com/gophercloud/gophercloud v0.9.0
+
+replace google.golang.org/grpc => google.golang.org/grpc v1.26.0
