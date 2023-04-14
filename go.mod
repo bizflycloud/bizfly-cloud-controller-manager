@@ -19,7 +19,7 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	k8s.io/api v0.18.1
 	k8s.io/apimachinery v0.18.1
-	k8s.io/cloud-provider v0.20.15
+	k8s.io/cloud-provider v0.27.0
 	k8s.io/cloud-provider-openstack v1.18.0
 	k8s.io/component-base v0.18.1
 	k8s.io/klog v1.0.0
