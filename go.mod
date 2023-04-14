@@ -4,12 +4,17 @@ go 1.13
 
 require (
 	github.com/bizflycloud/gobizfly v1.0.10
+	github.com/golang/protobuf v1.5.3 // indirect
+	github.com/kr/pretty v0.2.0 // indirect
 	github.com/mitchellh/mapstructure v1.1.2
 	github.com/spf13/pflag v1.0.5
 	golang.org/x/net v0.0.0-20200226121028-0de0cce0169b // indirect
+	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
+	google.golang.org/genproto v0.0.0-20201019141844-1ed22bb0c154 // indirect
+	google.golang.org/protobuf v1.30.0 // indirect
 	k8s.io/api v0.18.1
 	k8s.io/apimachinery v0.18.1
-	k8s.io/cloud-provider v0.18.1
+	k8s.io/cloud-provider v0.20.15
 	k8s.io/cloud-provider-openstack v1.18.0
 	k8s.io/component-base v0.18.1
 	k8s.io/klog v1.0.0
