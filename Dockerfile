@@ -2,12 +2,12 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-FROM golang:alpine3.11  AS build-env
+FROM golang:alpine3.17  AS build-env
 WORKDIR /app
 ADD . /app
 RUN cd /app && GO111MODULE=on GOARCH=amd64 go build -o bizfly-cloud-controller-manager cmd/bizfly-cloud-controller-manager/main.go
 
-FROM amd64/alpine:3.11
+FROM amd64/alpine:3.17
 
 RUN apk add --no-cache ca-certificates
 
