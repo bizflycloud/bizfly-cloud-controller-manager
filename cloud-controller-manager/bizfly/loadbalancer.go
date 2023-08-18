@@ -21,9 +21,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
-	"time"
 	"net"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/bizflycloud/gobizfly"
 	v1 "k8s.io/api/core/v1"
@@ -66,8 +67,8 @@ const (
 	annotationEnableProxyProtocol = "kubernetes.bizflycloud.vn/enable-proxy-protocol"
 	annotationVPCNetworkName      = "kubernetes.bizflycloud.vn/vpc-network-name"
 
-	annotationEnableIngressHostname = "kubernetes.bizflycloud.vn/enable-ingress-hostname"
-
+	annotationEnableIngressHostname        = "kubernetes.bizflycloud.vn/enable-ingress-hostname"
+	annotationLoadBalancerTargetNodeLabels = "kubernetes.bizflycloud.vn/target-node-labels"
 	// See https://nip.io
 	defaultProxyHostnameSuffix = "nip.io"
 )
@@ -147,7 +148,7 @@ func (l *loadbalancers) GetLoadBalancerName(ctx context.Context, clusterName str
 // Implementations must treat the *v1.Service and *v1.Node
 // parameters as read-only and not modify them.
 // Parameter 'clusterName' is the name of the cluster as presented to kube-controller-manager
-func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName string, apiService *v1.Service, nodes []*v1.Node) (*v1.LoadBalancerStatus, error) {
+func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName string, apiService *v1.Service, nodes []*v1.Node) (*v1.LoadBalancerStnodesList := filterTargetNodes(apiService, nodes)atus, error) {
 
 	serviceName := fmt.Sprintf("%s/%s", apiService.Namespace, apiService.Name)
 	klog.Infof("EnsureLoadBalancer(%w, %w)", clusterName, serviceName)
@@ -167,6 +168,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	useProxyProtocol, err := getBoolFromServiceAnnotation(apiService, annotationEnableProxyProtocol, false)
 	enableIngressHostname, err := getBoolFromServiceAnnotation(apiService, annotationEnableIngressHostname, false)
 	vpcNetworkName := getStringFromServiceAnnotation(apiService, annotationVPCNetworkName, "")
+
 	if err != nil {
 		return nil, err
 	}
@@ -185,6 +187,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	// Check load balancer is exist or not
 	name := l.GetLoadBalancerName(ctx, clusterName, apiService)
 	loadbalancer, err := getLBByName(ctx, l.gclient, name)	
+
 	if err != nil {
 		if !errors.Is(err, ErrNotFound) {
 			klog.Errorf("error getting loadbalancer for Service %w: %v", serviceName, err)
@@ -240,7 +243,8 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	
 					// update pool
 					members, _ := getMembersByPoolID(ctx, l.gclient, new_pool.ID)
-					for _, node := range nodes {
+          nodesList := filterTargetNodes(apiService, nodes)
+					for _, node := range nodesList {
 						addr, err := nodeAddressForLB(node)
 	
 						if err != nil {
@@ -366,7 +370,8 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		if err != nil && !cpoerrors.IsNotFound(err) {
 			return nil, fmt.Errorf("error getting pool members %w: %v", pool.ID, err)
 		}
-		for _, node := range nodes {
+    nodesList := filterTargetNodes(apiService, nodes)
+    for _, node := range nodesList {
 			addr, err := nodeAddressForLB(node)
 
 			if err != nil {
@@ -574,7 +579,8 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 	}
 
 	addrs := make(map[string]*v1.Node)
-	for _, node := range nodes {
+	nodesList := filterTargetNodes(service, nodes)
+	for _, node := range nodesList {
 		addr, err := nodeAddressForLB(node)
 		if err != nil {
 			return err
@@ -751,7 +757,7 @@ func waitLoadbalancerDeleted(ctx context.Context, client *gobizfly.Client, loadb
 	return err
 }
 
-//getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
+// getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
 func getStringFromServiceAnnotation(service *v1.Service, annotationKey string, defaultSetting string) string {
 	klog.Infof("getStringFromServiceAnnotation(%v, %v, %v)", service, annotationKey, defaultSetting)
 	if annotationValue, ok := service.Annotations[annotationKey]; ok {
@@ -776,6 +782,33 @@ func getIntFromServiceAnnotation(service *v1.Service, annotationKey string) (int
 		}
 	}
 	return 0, false
+}
+
+func getKeyValueFromServiceAnnotation(service *v1.Service, annotationKey string) map[string]string {
+	klog.Infof("getKeyValueFromServiceAnnotation(%v, %v)", service, annotationKey)
+	additionalTags := make(map[string]string)
+	if annotationValue, ok := service.Annotations[annotationKey]; ok {
+		klog.Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
+		annotationValueTrimmed := strings.TrimSpace(annotationValue)
+
+		// Break up list of "Key1=Val,Key2=Val2"
+		tagList := strings.Split(annotationValueTrimmed, ",")
+
+		// Break up "Key=Val"
+		for _, tagSet := range tagList {
+			tag := strings.Split(strings.TrimSpace(tagSet), "=")
+
+			// Accept "Key=val" or "Key=" or just "Key"
+			if len(tag) >= 2 && len(tag[0]) != 0 {
+				// There is a key and a value, so save it
+				additionalTags[tag[0]] = tag[1]
+			} else if len(tag) == 1 && len(tag[0]) != 0 {
+				// Just "Key"
+				additionalTags[tag[0]] = ""
+			}
+		}
+	}
+	return additionalTags
 }
 
 func (l *loadbalancers) createLoadBalancer(ctx context.Context, name string, networkType string, lbType string, vpcNetworkName string) (*gobizfly.LoadBalancer, error) {
@@ -839,6 +872,11 @@ func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gob
 		LBAlgorithm:        ROUND_ROBIN, // TODO use annotation for algorithm
 		SessionPersistence: sessionPersistence,
 		ListenerID: 			 	listener.ID,
+	}
+	if isdefault == false {
+		pcr.ListenerID = ""
+	} else {
+		pcr.ListenerID = listener.ID
 	}
 	if isdefault == false {
 		pcr.ListenerID = ""
@@ -996,3 +1034,33 @@ func updateListenerDefaultPool(ctx context.Context, client *gobizfly.Client, poo
 	}
 	return listener, nil
 }
+
+
+
+// getKeyValuePropertiesFromAnnotation converts the comma separated list of key-value
+// pairs from the specified annotation and returns it as a map.
+
+func filterTargetNodes(apiService *v1.Service, nodes []*v1.Node) []*v1.Node {
+	targetNodeLabels := getKeyValueFromServiceAnnotation(apiService, annotationLoadBalancerTargetNodeLabels)
+	if len(targetNodeLabels) == 0 {
+		return nodes
+	}
+	targetNodes := make([]*v1.Node, 0, len(nodes))
+	for _, node := range nodes {
+		if node.Labels != nil && len(node.Labels) > 0 {
+			allFiltersMatch := true
+
+			for targetLabelKey, targetLabelValue := range targetNodeLabels {
+				if nodeLabelValue, ok := node.Labels[targetLabelKey]; !ok || (nodeLabelValue != targetLabelValue && targetLabelValue != "") {
+					allFiltersMatch = false
+					break
+				}
+			}
+			if allFiltersMatch {
+				targetNodes = append(targetNodes, node)
+			}
+		}
+	}
+	return targetNodes
+}
+
