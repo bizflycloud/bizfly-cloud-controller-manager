@@ -67,7 +67,7 @@ const (
 	annotationEnableProxyProtocol = "kubernetes.bizflycloud.vn/enable-proxy-protocol"
 	annotationVPCNetworkName      = "kubernetes.bizflycloud.vn/vpc-network-name"
 
-	annotationEnableIngressHostname        = "kubernetes.bizflycloud.vn/enable-ingress-hostname"
+	annotationEnableIngressHostname = "kubernetes.bizflycloud.vn/enable-ingress-hostname"
 	annotationLoadBalancerTargetNodeLabels = "kubernetes.bizflycloud.vn/target-node-labels"
 	// See https://nip.io
 	defaultProxyHostnameSuffix = "nip.io"
@@ -168,7 +168,6 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	useProxyProtocol, err := getBoolFromServiceAnnotation(apiService, annotationEnableProxyProtocol, false)
 	enableIngressHostname, err := getBoolFromServiceAnnotation(apiService, annotationEnableIngressHostname, false)
 	vpcNetworkName := getStringFromServiceAnnotation(apiService, annotationVPCNetworkName, "")
-
 	if err != nil {
 		return nil, err
 	}
@@ -187,111 +186,6 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	// Check load balancer is exist or not
 	name := l.GetLoadBalancerName(ctx, clusterName, apiService)
 	loadbalancer, err := getLBByName(ctx, l.gclient, name)
-	klog.Infof("LB Status: %v", loadbalancer.ProvisioningStatus)
-	if loadbalancer.ProvisioningStatus == "ACTIVE" {
-		oldListeners, err := getListenersByLoadBalancerID(ctx, l.gclient, loadbalancer.ID)
-		if err != nil {
-			klog.Errorf("error getting LB %w listeners: %v", loadbalancer.Name, err)
-			return nil, fmt.Errorf("error getting LB %w listeners: %v", loadbalancer.Name, err)
-		}
-		// get pools
-		for portIndex, port := range ports {
-			listener, _ := getListenerForPort(oldListeners, port)
-			old_pool, _ := getPoolByListenerID(ctx, l.gclient, loadbalancer.ID, listener.ID)
-			// get current pool protocol
-			poolProtocol := false
-			if old_pool.Protocol == "PROXY" {
-				poolProtocol = true
-			}
-			if poolProtocol == useProxyProtocol {
-				klog.Infof("Pool Protocol proxy enabled")
-				continue
-			} else {
-				klog.Infof("Current pool protocol: %v", poolProtocol)
-				klog.Infof("Use Proxy Protocol: %v", useProxyProtocol)
-
-				//create new pool
-				new_pool, err := l.createPoolForListener(ctx, listener, portIndex, loadbalancer.ID, name, persistence, useProxyProtocol, false)
-				klog.Infof("Pool created for listener %s: %s", listener.ID, new_pool.ID)
-				if err != nil {
-					return nil, err
-				}
-				provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
-				if err != nil {
-					klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %w", provisioningStatus)
-					return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %w", provisioningStatus)
-				}
-
-				// update pool
-				members, _ := getMembersByPoolID(ctx, l.gclient, new_pool.ID)
-				nodesList := filterTargetNodes(apiService, nodes)
-				klog.Errorf("List_node %w", nodesList)
-				for _, node := range nodesList {
-					addr, err := nodeAddressForLB(node)
-
-					if err != nil {
-						if errors.Is(err, ErrNoAddressFound) {
-							// Node failure, do not create member
-							klog.Warningf("Failed to create LB pool member for node %s: %v", node.Name, err)
-							continue
-						} else {
-							klog.Errorf("error getting address for node %w: %v", node.Name, err)
-							return nil, fmt.Errorf("error getting address for node %w: %v", node.Name, err)
-						}
-					}
-					if !memberExists(members, addr, int(port.NodePort)) {
-						klog.Infof("Creating member for pool %s", new_pool.ID)
-
-						_, err := l.gclient.Member.Create(ctx, new_pool.ID, &gobizfly.MemberCreateRequest{
-							Name:         cutString(fmt.Sprintf("member_%d_%s_%s", portIndex, node.Name, name)),
-							ProtocolPort: int(port.NodePort),
-							Address:      addr,
-						})
-						if err != nil {
-							klog.Infof("error creating LB pool member for node: %w, %v", node.Name, err)
-							return nil, fmt.Errorf("error creating LB pool member for node: %w, %v", node.Name, err)
-						}
-
-						provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
-						if err != nil {
-							klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
-							return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
-						}
-					} else {
-						// After all members have been processed, remaining members are deleted as obsolete.
-						members = popMember(members, addr, int(port.NodePort))
-					}
-
-					klog.Infof("Ensured pool %s has member for %s at %s:%d", new_pool.ID, node.Name, addr, port.NodePort)
-				}
-
-				// update listener
-				klog.Infof("Update new poolID for listener")
-				_, err = updateListenerDefaultPool(ctx, l.gclient, new_pool.ID, listener.ID)
-				if err != nil {
-					klog.Errorf("Update new poolID for listener failed: %w", err)
-					return nil, err
-				}
-				provisioningStatus, err = waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
-				if err != nil {
-					klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
-					return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
-				}
-
-				// Delete old pool members
-				klog.Infof("Delete old pool for listener")
-				err = deletePool(ctx, l.gclient, old_pool.ID)
-				if err != nil {
-					return nil, err
-				}
-				provisioningStatus, err = waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
-				if err != nil {
-					klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
-					return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
-				}
-			}
-		}
-	}
 	if err != nil {
 		if !errors.Is(err, ErrNotFound) {
 			klog.Errorf("error getting loadbalancer for Service %w: %v", serviceName, err)
@@ -308,6 +202,110 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 
 	} else {
 		klog.V(2).Infof("LoadBalancer %s already exists", loadbalancer.Name)
+	}
+	if loadbalancer != nil {
+		if loadbalancer.ProvisioningStatus == "ACTIVE" {
+			oldListeners, err := getListenersByLoadBalancerID(ctx, l.gclient, loadbalancer.ID)
+			if err != nil {
+				klog.Errorf("error getting LB %w listeners: %v", loadbalancer.Name, err)
+				return nil, fmt.Errorf("error getting LB %w listeners: %v", loadbalancer.Name, err)
+			}
+			// get pools
+			for portIndex, port := range ports {
+				listener, _ := getListenerForPort(oldListeners, port)
+				old_pool, _ := getPoolByListenerID(ctx, l.gclient, loadbalancer.ID, listener.ID)
+				// get current pool protocol
+				poolProtocol := false
+				if old_pool.Protocol == "PROXY" {
+					poolProtocol = true
+				} 
+				if poolProtocol == useProxyProtocol {
+					klog.Infof("Pool Protocol proxy enabled")
+					continue
+				} else {
+					klog.Infof("Current pool protocol: %v", poolProtocol)
+					klog.Infof("Use Proxy Protocol: %v", useProxyProtocol)
+
+					//create new pool
+					new_pool, err := l.createPoolForListener(ctx, listener, portIndex, loadbalancer.ID, name, persistence, useProxyProtocol, false)
+					klog.Infof("Pool created for listener %s: %s", listener.ID, new_pool.ID)
+					if err != nil {
+						return nil, err
+					}
+					provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+					if err != nil {
+						klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %w", provisioningStatus)
+						return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %w", provisioningStatus)
+					}
+
+					// update pool
+					members, _ := getMembersByPoolID(ctx, l.gclient, new_pool.ID)
+					for _, node := range nodes {
+						addr, err := nodeAddressForLB(node)
+
+						if err != nil {
+							if errors.Is(err, ErrNoAddressFound) {
+								// Node failure, do not create member
+								klog.Warningf("Failed to create LB pool member for node %s: %v", node.Name, err)
+								continue
+							} else {
+								klog.Errorf("error getting address for node %w: %v", node.Name, err)
+								return nil, fmt.Errorf("error getting address for node %w: %v", node.Name, err)
+							}
+						}
+						if !memberExists(members, addr, int(port.NodePort)) {
+							klog.Infof("Creating member for pool %s", new_pool.ID)
+
+							_, err := l.gclient.Member.Create(ctx, new_pool.ID, &gobizfly.MemberCreateRequest{
+								Name:         cutString(fmt.Sprintf("member_%d_%s_%s", portIndex, node.Name, name)),
+								ProtocolPort: int(port.NodePort),
+								Address:      addr,
+							})
+							if err != nil {
+								klog.Infof("error creating LB pool member for node: %w, %v", node.Name, err)
+								return nil, fmt.Errorf("error creating LB pool member for node: %w, %v", node.Name, err)
+							}
+
+							provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+							if err != nil {
+								klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
+								return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
+							}
+						} else {
+							// After all members have been processed, remaining members are deleted as obsolete.
+							members = popMember(members, addr, int(port.NodePort))
+						}
+
+						klog.Infof("Ensured pool %s has member for %s at %s:%d", new_pool.ID, node.Name, addr, port.NodePort)
+					}
+
+					// update listener
+					klog.Infof("Update new poolID for listener")
+					_, err = updateListenerDefaultPool(ctx, l.gclient, new_pool.ID, listener.ID)
+					if err != nil {
+						klog.Errorf("Update new poolID for listener failed: %w", err)
+						return nil, err
+					}
+					provisioningStatus, err = waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+					if err != nil {
+						klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
+						return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
+					}
+
+					// Delete old pool members
+					klog.Infof("Delete old pool for listener")
+					err = deletePool(ctx, l.gclient, old_pool.ID)
+					if err != nil {
+						return nil, err
+					}
+					provisioningStatus, err = waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+					if err != nil {
+						klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
+						return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
+					}
+				}
+			}
+		}
 	}
 
 	provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
@@ -368,7 +366,8 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		if err != nil && !cpoerrors.IsNotFound(err) {
 			return nil, fmt.Errorf("error getting pool members %w: %v", pool.ID, err)
 		}
-		for _, node := range nodes {
+		nodesList := filterTargetNodes(apiService, nodes)
+		for _, node := range nodesList {
 			addr, err := nodeAddressForLB(node)
 
 			if err != nil {
@@ -754,7 +753,7 @@ func waitLoadbalancerDeleted(ctx context.Context, client *gobizfly.Client, loadb
 	return err
 }
 
-// getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
+//getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
 func getStringFromServiceAnnotation(service *v1.Service, annotationKey string, defaultSetting string) string {
 	klog.Infof("getStringFromServiceAnnotation(%v, %v, %v)", service, annotationKey, defaultSetting)
 	if annotationValue, ok := service.Annotations[annotationKey]; ok {
@@ -779,33 +778,6 @@ func getIntFromServiceAnnotation(service *v1.Service, annotationKey string) (int
 		}
 	}
 	return 0, false
-}
-
-func getKeyValueFromServiceAnnotation(service *v1.Service, annotationKey string) map[string]string {
-	klog.Infof("getKeyValueFromServiceAnnotation(%v, %v)", service, annotationKey)
-	additionalTags := make(map[string]string)
-	if annotationValue, ok := service.Annotations[annotationKey]; ok {
-		klog.Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
-		annotationValueTrimmed := strings.TrimSpace(annotationValue)
-
-		// Break up list of "Key1=Val,Key2=Val2"
-		tagList := strings.Split(annotationValueTrimmed, ",")
-
-		// Break up "Key=Val"
-		for _, tagSet := range tagList {
-			tag := strings.Split(strings.TrimSpace(tagSet), "=")
-
-			// Accept "Key=val" or "Key=" or just "Key"
-			if len(tag) >= 2 && len(tag[0]) != 0 {
-				// There is a key and a value, so save it
-				additionalTags[tag[0]] = tag[1]
-			} else if len(tag) == 1 && len(tag[0]) != 0 {
-				// Just "Key"
-				additionalTags[tag[0]] = ""
-			}
-		}
-	}
-	return additionalTags
 }
 
 func (l *loadbalancers) createLoadBalancer(ctx context.Context, name string, networkType string, lbType string, vpcNetworkName string) (*gobizfly.LoadBalancer, error) {
@@ -864,11 +836,11 @@ func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gob
 	}
 	poolName := cutString(fmt.Sprintf("pool_%d_%s", portIndex, lbName))
 	pcr := gobizfly.PoolCreateRequest{
-		Name:               &poolName,
+		Name:								&poolName,
 		Protocol:           poolProtocol,
 		LBAlgorithm:        ROUND_ROBIN, // TODO use annotation for algorithm
 		SessionPersistence: sessionPersistence,
-		ListenerID:         listener.ID,
+		ListenerID: 			 	listener.ID,
 	}
 	if isdefault == false {
 		pcr.ListenerID = ""
@@ -1027,9 +999,6 @@ func updateListenerDefaultPool(ctx context.Context, client *gobizfly.Client, poo
 	return listener, nil
 }
 
-// getKeyValuePropertiesFromAnnotation converts the comma separated list of key-value
-// pairs from the specified annotation and returns it as a map.
-
 func filterTargetNodes(apiService *v1.Service, nodes []*v1.Node) []*v1.Node {
 	targetNodeLabels := getKeyValueFromServiceAnnotation(apiService, annotationLoadBalancerTargetNodeLabels)
 	if len(targetNodeLabels) == 0 {
@@ -1052,4 +1021,31 @@ func filterTargetNodes(apiService *v1.Service, nodes []*v1.Node) []*v1.Node {
 		}
 	}
 	return targetNodes
+}
+
+func getKeyValueFromServiceAnnotation(service *v1.Service, annotationKey string) map[string]string {
+	klog.Infof("getKeyValueFromServiceAnnotation(%v, %v)", service, annotationKey)
+	additionalTags := make(map[string]string)
+	if annotationValue, ok := service.Annotations[annotationKey]; ok {
+		klog.Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
+		annotationValueTrimmed := strings.TrimSpace(annotationValue)
+
+		// Break up list of "Key1=Val,Key2=Val2"
+		tagList := strings.Split(annotationValueTrimmed, ",")
+
+		// Break up "Key=Val"
+		for _, tagSet := range tagList {
+			tag := strings.Split(strings.TrimSpace(tagSet), "=")
+
+			// Accept "Key=val" or "Key=" or just "Key"
+			if len(tag) >= 2 && len(tag[0]) != 0 {
+				// There is a key and a value, so save it
+				additionalTags[tag[0]] = tag[1]
+			} else if len(tag) == 1 && len(tag[0]) != 0 {
+				// Just "Key"
+				additionalTags[tag[0]] = ""
+			}
+		}
+	}
+	return additionalTags
 }
