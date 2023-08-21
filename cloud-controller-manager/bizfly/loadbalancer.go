@@ -21,9 +21,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
-	"time"
 	"net"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/bizflycloud/gobizfly"
 	v1 "k8s.io/api/core/v1"
@@ -67,7 +68,7 @@ const (
 	annotationVPCNetworkName      = "kubernetes.bizflycloud.vn/vpc-network-name"
 
 	annotationEnableIngressHostname = "kubernetes.bizflycloud.vn/enable-ingress-hostname"
-
+	annotationLoadBalancerTargetNodeLabels = "kubernetes.bizflycloud.vn/target-node-labels"
 	// See https://nip.io
 	defaultProxyHostnameSuffix = "nip.io"
 )
@@ -365,7 +366,8 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		if err != nil && !cpoerrors.IsNotFound(err) {
 			return nil, fmt.Errorf("error getting pool members %w: %v", pool.ID, err)
 		}
-		for _, node := range nodes {
+		nodesList := filterTargetNodes(apiService, nodes)
+		for _, node := range nodesList {
 			addr, err := nodeAddressForLB(node)
 
 			if err != nil {
@@ -573,7 +575,8 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 	}
 
 	addrs := make(map[string]*v1.Node)
-	for _, node := range nodes {
+	nodesList := filterTargetNodes(service, nodes)
+	for _, node := range nodesList {
 		addr, err := nodeAddressForLB(node)
 		if err != nil {
 			return err
@@ -994,4 +997,55 @@ func updateListenerDefaultPool(ctx context.Context, client *gobizfly.Client, poo
 		return nil, fmt.Errorf("Updating error pool %s: %v", poolID, err)
 	}
 	return listener, nil
+}
+
+func filterTargetNodes(apiService *v1.Service, nodes []*v1.Node) []*v1.Node {
+	targetNodeLabels := getKeyValueFromServiceAnnotation(apiService, annotationLoadBalancerTargetNodeLabels)
+	if len(targetNodeLabels) == 0 {
+		return nodes
+	}
+	targetNodes := make([]*v1.Node, 0, len(nodes))
+	for _, node := range nodes {
+		if node.Labels != nil && len(node.Labels) > 0 {
+			allFiltersMatch := true
+
+			for targetLabelKey, targetLabelValue := range targetNodeLabels {
+				if nodeLabelValue, ok := node.Labels[targetLabelKey]; !ok || (nodeLabelValue != targetLabelValue && targetLabelValue != "") {
+					allFiltersMatch = false
+					break
+				}
+			}
+			if allFiltersMatch {
+				targetNodes = append(targetNodes, node)
+			}
+		}
+	}
+	return targetNodes
+}
+
+func getKeyValueFromServiceAnnotation(service *v1.Service, annotationKey string) map[string]string {
+	klog.Infof("getKeyValueFromServiceAnnotation(%v, %v)", service, annotationKey)
+	additionalTags := make(map[string]string)
+	if annotationValue, ok := service.Annotations[annotationKey]; ok {
+		klog.Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
+		annotationValueTrimmed := strings.TrimSpace(annotationValue)
+
+		// Break up list of "Key1=Val,Key2=Val2"
+		tagList := strings.Split(annotationValueTrimmed, ",")
+
+		// Break up "Key=Val"
+		for _, tagSet := range tagList {
+			tag := strings.Split(strings.TrimSpace(tagSet), "=")
+
+			// Accept "Key=val" or "Key=" or just "Key"
+			if len(tag) >= 2 && len(tag[0]) != 0 {
+				// There is a key and a value, so save it
+				additionalTags[tag[0]] = tag[1]
+			} else if len(tag) == 1 && len(tag[0]) != 0 {
+				// Just "Key"
+				additionalTags[tag[0]] = ""
+			}
+		}
+	}
+	return additionalTags
 }
