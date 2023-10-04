@@ -35,7 +35,9 @@ import (
 )
 
 const (
-	instanceShutoff = "SHUTOFF"
+	instanceShutoff        = "SHUTOFF"
+	everywhereProviderName = "bke_everywhere"
+	nodeLabelNodePublicIP = "public_ip_v4"
 )
 
 type flavor struct {
@@ -44,6 +46,7 @@ type flavor struct {
 
 type servers struct {
 	gclient *gobizfly.Client
+	gkubernetes *gobizfly.KubernetesEngineService
 }
 
 func newInstances(client *gobizfly.Client) cloudprovider.Instances {
@@ -73,6 +76,10 @@ func (s *servers) NodeAddresses(ctx context.Context, nodeName types.NodeName) ([
 // and other local methods cannot be used here
 func (s *servers) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]v1.NodeAddress, error) {
 	klog.V(4).Infof("NodeAddressesByProviderID(%v) called", providerID)
+	serverType, err := serverTypeFromProviderID(providerID)
+	if serverType == "bke_everywhere" {
+		return []v1.NodeAddress{}, nil
+	}
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return []v1.NodeAddress{}, err
@@ -153,6 +160,15 @@ func (s *servers) CurrentNodeName(ctx context.Context, hostname string) (types.N
 // This method should still return true for instances that exist but are stopped/sleeping.
 func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
 	klog.V(4).Infof("InstanceExistsByProviderID(%v) is called", providerID)
+	serverType, err := serverTypeFromProviderID(providerID)
+	if serverType == "bke_everywhere" {
+		isEverywhere, err := getEverywhereNode(ctx, s.gclient, providerID)
+		if isEverywhere == true {
+			klog.V(4).Infof("The node everywhere %s is in  %v", s.gclient, providerID)
+			return true, nil
+		}
+		return false, err
+	}
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return false, err
@@ -167,6 +183,14 @@ func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID str
 // InstanceShutdownByProviderID returns true if the instance is shutdown in cloudprovider
 func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
 	klog.V(4).Infof("InstanceShutdownByProviderID(%v) is called", providerID)
+	serverType, err := serverTypeFromProviderID(providerID)
+	if serverType == "bke_everywhere" {
+		isEverywhere, err := getEverywhereNode(ctx, s.gclient ,providerID)
+		if isEverywhere == true {
+			return false, nil
+		}
+		return false, err
+	}
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return false, err
@@ -187,10 +211,10 @@ func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID s
 // nodeAddresses returns addresses of server
 func nodeAdddresses(server *gobizfly.Server) ([]v1.NodeAddress, error) {
 	var addresses []v1.NodeAddress
-	for i := range(server.IPAddresses.LanAddresses) {
+	for i := range server.IPAddresses.LanAddresses {
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: server.IPAddresses.LanAddresses[i].Address})
 	}
-	for i := range(server.IPAddresses.WanV4Addresses) {
+	for i := range server.IPAddresses.WanV4Addresses {
 		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: server.IPAddresses.WanV4Addresses[i].Address})
 	}
 	return addresses, nil
@@ -233,6 +257,7 @@ func (s *servers) GetZoneByNodeName(ctx context.Context, client *gobizfly.Client
 
 // If Instances.InstanceID or cloudprovider.GetInstanceProviderID is changed, the regexp should be changed too.
 var providerIDRegexp = regexp.MustCompile(`^` + ProviderName + `://([^/]+)$`)
+var everywhereProviderIDRegexp = regexp.MustCompile(`^` + `bke_everywhere` + `://([^/]+)$`)
 
 // instanceIDFromProviderID splits a provider's id and return instanceID.
 // A providerID is build out of '${ProviderName}:///${instance-id}'which contains ':///'.
@@ -243,10 +268,37 @@ func serverIDFromProviderID(providerID string) (instanceID string, err error) {
 	if providerID != "" && !strings.Contains(providerID, "://") {
 		providerID = ProviderName + "://" + providerID
 	}
-
+	types, err := serverTypeFromProviderID(providerID)
+	if types == "bke_everywhere" {
+		matches := everywhereProviderIDRegexp.FindStringSubmatch(providerID)
+		if len(matches) != 2 {
+			return "", fmt.Errorf("ProviderID \"%w\" didn't match expected format \"bke_everywhere:///InstanceID\"", providerID)
+		}
+		return matches[1], nil
+	}
 	matches := providerIDRegexp.FindStringSubmatch(providerID)
 	if len(matches) != 2 {
 		return "", fmt.Errorf("ProviderID \"%w\" didn't match expected format \"bizflycloud:///InstanceID\"", providerID)
 	}
 	return matches[1], nil
+}
+
+func serverTypeFromProviderID(providerID string) (instanceID string, err error) {
+	match := regexp.MustCompile(`^([a-z]+)://`).FindStringSubmatch(providerID)
+	if len(match) != 2 {
+		return "", fmt.Errorf("ProviderID \"%w\" didn't match expected format")
+	}
+
+	return match[1], nil
+}
+
+func getEverywhereNode(ctx context.Context, client *gobizfly.Client , providerID string) (bool, error) {
+	node, err := client.KubernetesEngine.GetEverywhere(ctx, providerID)
+	if err != nil {
+		return false, err
+	}
+	if node != nil {
+		return true, err
+	}
+	return false, nil
 }
