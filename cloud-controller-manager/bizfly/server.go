@@ -76,11 +76,17 @@ func (s *servers) NodeAddresses(ctx context.Context, nodeName types.NodeName) ([
 // and other local methods cannot be used here
 func (s *servers) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]v1.NodeAddress, error) {
 	klog.V(4).Infof("NodeAddressesByProviderID(%v) called", providerID)
+	fmt.Println("call NodeAddressByProviderID")
 	serverType, err := serverTypeFromProviderID(providerID)
-	if serverType == "bke_everywhere" {
+	if serverType == "everywhere" {
+		fmt.Println("NodeAddress Everywhere", serverType)
 		return []v1.NodeAddress{}, nil
 	}
 	serverID, err := serverIDFromProviderID(providerID)
+	if serverID == "" {
+		fmt.Println("serverID empty", err)
+		return nil, nil
+	}
 	if err != nil {
 		return []v1.NodeAddress{}, err
 	}
@@ -160,8 +166,12 @@ func (s *servers) CurrentNodeName(ctx context.Context, hostname string) (types.N
 // This method should still return true for instances that exist but are stopped/sleeping.
 func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
 	klog.V(4).Infof("InstanceExistsByProviderID(%v) is called", providerID)
-	serverType, err := serverTypeFromProviderID(providerID)
-	if serverType == "bke_everywhere" {
+	fmt.Println("calling InstanceExistsByProviderID with providerID " + providerID)
+	serverType, _ := serverTypeFromProviderID(providerID)
+	if serverType != "everywhere" && serverType != "bizflycloud" {
+		return false, nil
+	}
+	if serverType == "everywhere" {
 		isEverywhere, err := getEverywhereNode(ctx, s.gclient, providerID)
 		if isEverywhere == true {
 			klog.V(4).Infof("The node everywhere %s is in  %v", s.gclient, providerID)
@@ -183,8 +193,9 @@ func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID str
 // InstanceShutdownByProviderID returns true if the instance is shutdown in cloudprovider
 func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
 	klog.V(4).Infof("InstanceShutdownByProviderID(%v) is called", providerID)
+	fmt.Println("calling InstanceShutdownByProviderID with providerID " + providerID)
 	serverType, err := serverTypeFromProviderID(providerID)
-	if serverType == "bke_everywhere" {
+	if serverType == "everywhere" {
 		isEverywhere, err := getEverywhereNode(ctx, s.gclient ,providerID)
 		if isEverywhere == true {
 			return false, nil
@@ -263,13 +274,13 @@ var everywhereProviderIDRegexp = regexp.MustCompile(`^` + `bke_everywhere` + `:/
 // A providerID is build out of '${ProviderName}:///${instance-id}'which contains ':///'.
 // See cloudprovider.GetInstanceProviderID and Instances.InstanceID.
 func serverIDFromProviderID(providerID string) (instanceID string, err error) {
-
+	
 	// https://github.com/kubernetes/kubernetes/issues/85731
 	if providerID != "" && !strings.Contains(providerID, "://") {
 		providerID = ProviderName + "://" + providerID
 	}
 	types, err := serverTypeFromProviderID(providerID)
-	if types == "bke_everywhere" {
+	if types == "everywhere" {
 		matches := everywhereProviderIDRegexp.FindStringSubmatch(providerID)
 		if len(matches) != 2 {
 			return "", fmt.Errorf("ProviderID \"%w\" didn't match expected format \"bke_everywhere:///InstanceID\"", providerID)
@@ -284,7 +295,7 @@ func serverIDFromProviderID(providerID string) (instanceID string, err error) {
 }
 
 func serverTypeFromProviderID(providerID string) (instanceID string, err error) {
-	match := regexp.MustCompile(`^([a-z]+)://`).FindStringSubmatch(providerID)
+	match := regexp.MustCompile(`([a-z]+)://`).FindStringSubmatch(providerID)
 	if len(match) != 2 {
 		return "", fmt.Errorf("ProviderID \"%w\" didn't match expected format")
 	}
@@ -293,7 +304,10 @@ func serverTypeFromProviderID(providerID string) (instanceID string, err error) 
 }
 
 func getEverywhereNode(ctx context.Context, client *gobizfly.Client , providerID string) (bool, error) {
-	node, err := client.KubernetesEngine.GetEverywhere(ctx, providerID)
+	fmt.Println("Calling getEverywhereNode")
+	uuid := strings.Split(providerID, "://")[1]
+	node, err := client.KubernetesEngine.GetEverywhere(ctx, uuid)
+	fmt.Println("getEverywhereNode with node: ", node)
 	if err != nil {
 		return false, err
 	}
