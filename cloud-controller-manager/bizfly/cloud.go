@@ -102,7 +102,7 @@ func newCloud() (cloudprovider.Interface, error) {
 		return nil, fmt.Errorf("Cannot create BizFly Cloud Client: %w", err)
 	}
 
-	token, err := bizflyClient.Token.Create(
+	token, err := bizflyClient.Token.Init(
 		ctx,
 		&gobizfly.TokenCreateRequest{
 			AuthMethod:    authMethod,
