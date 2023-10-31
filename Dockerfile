@@ -7,7 +7,7 @@ WORKDIR /app
 ADD . /app
 RUN cd /app && GO111MODULE=on GOARCH=amd64 go build -o bizfly-cloud-controller-manager cmd/bizfly-cloud-controller-manager/main.go
 
-FROM amd64/alpine:3.14.10
+FROM amd64/alpine:3.17
 
 RUN apk add --no-cache ca-certificates
 

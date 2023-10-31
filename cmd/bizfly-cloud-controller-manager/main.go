@@ -26,14 +26,38 @@ import (
 	"github.com/bizflycloud/bizfly-cloud-controller-manager/cloud-controller-manager/bizfly"
 	_ "github.com/bizflycloud/gobizfly"
 	"github.com/spf13/pflag"
+	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/cloud-provider/app"
+	"k8s.io/cloud-provider/app/config"
+	"k8s.io/cloud-provider/options"
+	"k8s.io/component-base/cli/flag"
 	"k8s.io/component-base/logs"
-	"k8s.io/kubernetes/cmd/cloud-controller-manager/app"
+	"k8s.io/apimachinery/pkg/util/wait"
+
+	"k8s.io/klog/v2"
+
+
 )
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
-	command := app.NewCloudControllerManagerCommand()
+	opts, err := options.NewCloudControllerManagerOptions()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to construct options: %v\n", err)
+		os.Exit(1)
+	}
+
+	opts.KubeCloudShared.CloudProvider.Name = bizfly.ProviderName
+	opts.Authentication.SkipInClusterLookup = true
+
+	command := app.NewCloudControllerManagerCommand(
+		opts,
+		bizflyInitializer,
+		app.DefaultInitFuncConstructors,
+		flag.NamedFlagSets{},
+		wait.NeverStop,
+	)
 
 	// Set static flags for which we know the values.
 	command.Flags().VisitAll(func(fl *pflag.Flag) {
@@ -67,4 +91,18 @@ func main() {
 	if err := command.Execute(); err != nil {
 		os.Exit(1)
 	}
+}
+
+func bizflyInitializer(cfg *config.CompletedConfig) cloudprovider.Interface {
+	cloudConfig := cfg.ComponentConfig.KubeCloudShared.CloudProvider
+	// initialize cloud provider with the cloud provider name and config file provided
+	cloud, err := cloudprovider.InitCloudProvider(cloudConfig.Name, cloudConfig.CloudConfigFile)
+	if err != nil {
+		klog.Fatalf("Cloud provider could not be initialized: %v", err)
+	}
+	if cloud == nil {
+		klog.Fatalf("Cloud provider is nil")
+	}
+
+	return cloud
 }

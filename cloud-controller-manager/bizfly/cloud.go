@@ -145,6 +145,10 @@ func (c *cloud) Instances() (cloudprovider.Instances, bool) {
 	return c.instances, true
 }
 
+func (c *cloud) InstancesV2() (cloudprovider.InstancesV2, bool) {
+	return nil, false
+}
+
 func (c *cloud) Zones() (cloudprovider.Zones, bool) {
 	klog.V(1).Info("Claiming to support Zones")
 	return c.zones, true
