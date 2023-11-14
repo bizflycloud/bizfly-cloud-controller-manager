@@ -52,18 +52,18 @@ func newInstances(client *gobizfly.Client) cloudprovider.Instances {
 
 // NodeAddresses implements Instances.NodeAddresses
 func (s *servers) NodeAddresses(ctx context.Context, nodeName types.NodeName) ([]v1.NodeAddress, error) {
-	klog.V(4).Infof("NodeAddresses(%v) called", nodeName)
+	klog.V(0).Infof("NodeAddresses(%v) called", nodeName)
 	server, err := serverByName(ctx, s.gclient, nodeName)
 	if err != nil {
 		return nil, err
 	}
 
-	klog.V(4).Infof("Server %v", server.Name)
-	addrs, err := nodeAdddresses(server)
+	klog.V(0).Infof("Server %v", server.Name)
+	addrs, err := nodeAdddresses(server, nil)
 	if err != nil {
 		return nil, err
 	}
-	klog.V(4).Infof("NodeAddresses(%v) => %v", nodeName, addrs)
+	klog.V(0).Infof("NodeAddresses(%v) => %v", nodeName, addrs)
 
 	return addrs, nil
 }
@@ -72,26 +72,34 @@ func (s *servers) NodeAddresses(ctx context.Context, nodeName types.NodeName) ([
 // This method will not be called from the node that is requesting this ID. i.e. metadata service
 // and other local methods cannot be used here
 func (s *servers) NodeAddressesByProviderID(ctx context.Context, providerID string) ([]v1.NodeAddress, error) {
-	klog.V(4).Infof("NodeAddressesByProviderID(%v) called", providerID)
+	klog.V(0).Infof("NodeAddressesByProviderID(%v) called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return []v1.NodeAddress{}, err
 	}
-	server, err := serverByID(ctx, s.gclient, serverID)
+	server, node, err := serverByID(ctx, s.gclient, serverID)
 	if err != nil {
 		return []v1.NodeAddress{}, err
 	}
-	addrs, err := nodeAdddresses(server)
-	if err != nil {
-		return nil, err
+  var addrs []v1.NodeAddress
+	if server != nil {
+		addrs, err = nodeAdddresses(server, nil)
+		if err != nil {
+			return nil, err
+		}
+	} else if node != nil {
+		addrs, err = nodeAdddresses(nil, node)
+		if err != nil {
+			return nil, err
+		}
 	}
-	klog.V(4).Infof("NodeAddressesByProviderID(%v) => %v", providerID, addrs)
+	klog.V(0).Infof("NodeAddressesByProviderID(%v) => %v", providerID, addrs)
 	return addrs, nil
 }
 
 // InstanceID returns the cloud provider ID of the node with the specified NodeName.
 func (s *servers) InstanceID(ctx context.Context, nodeName types.NodeName) (string, error) {
-	klog.V(4).Infof("InstaneID(%v) is called", nodeName)
+	klog.V(0).Infof("InstaneID(%v) is called", nodeName)
 	server, err := serverByName(ctx, s.gclient, nodeName)
 	if err != nil {
 		return "", err
@@ -101,7 +109,7 @@ func (s *servers) InstanceID(ctx context.Context, nodeName types.NodeName) (stri
 
 // InstanceType returns the type of the specified instance.
 func (s *servers) InstanceType(ctx context.Context, nodeName types.NodeName) (string, error) {
-	klog.V(4).Infof("InstanceType(%v) is called", nodeName)
+	klog.V(0).Infof("InstanceType(%v) is called", nodeName)
 	server, err := serverByName(ctx, s.gclient, nodeName)
 	if err != nil {
 		return "", err
@@ -116,21 +124,27 @@ func (s *servers) InstanceType(ctx context.Context, nodeName types.NodeName) (st
 
 // InstanceTypeByProviderID returns the type of the specified instance.
 func (s *servers) InstanceTypeByProviderID(ctx context.Context, providerID string) (string, error) {
-	klog.V(4).Infof("InstanceTypeByProviderID(%v) is called", providerID)
+	klog.V(0).Infof("InstanceTypeByProviderID(%v) is called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return "", err
 	}
-	server, err := serverByID(ctx, s.gclient, serverID)
+	server, node, err := serverByID(ctx, s.gclient, serverID)
 	if err != nil {
 		return "", err
 	}
-	var f *flavor
-	err = mapstructure.Decode(server.Flavor, &f)
-	if err != nil {
-		return "", err
+	if server != nil {
+		var f *flavor
+		err = mapstructure.Decode(server.Flavor, &f)
+		if err != nil {
+			return "", err
+		}
+		return f.Name, nil
 	}
-	return f.Name, nil
+	if node != nil {
+		return node.UUID, nil
+	}
+	return "", fmt.Errorf("server %s not found", serverID)
 }
 
 // AddSSHKeyToAllInstances is not implemented; it always returns an error.
@@ -140,7 +154,7 @@ func (s *servers) AddSSHKeyToAllInstances(_ context.Context, _ string, _ []byte)
 
 // CurrentNodeName returns the name of the node we are currently running on
 func (s *servers) CurrentNodeName(ctx context.Context, hostname string) (types.NodeName, error) {
-	klog.V(4).Infof("CurrentNodeName(%v) is called", hostname)
+	klog.V(0).Infof("CurrentNodeName(%v) is called", hostname)
 	md, err := metadata.Get("")
 	if err != nil {
 		return "", err
@@ -152,56 +166,76 @@ func (s *servers) CurrentNodeName(ctx context.Context, hostname string) (types.N
 // If false is returned with no error, the instance will be immediately deleted by the cloud controller manager.
 // This method should still return true for instances that exist but are stopped/sleeping.
 func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID string) (bool, error) {
-	klog.V(4).Infof("InstanceExistsByProviderID(%v) is called", providerID)
+	klog.V(0).Infof("InstanceExistsByProviderID(%v) is called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return false, err
 	}
-	_, err = serverByID(ctx, s.gclient, serverID)
-	if errors.Is(err, gobizfly.ErrNotFound) {
-		return false, nil
+	server, node, err := serverByID(ctx, s.gclient, serverID)
+	if errors.Is(err, gobizfly.ErrNotFound) || err != nil {
+		return false, err
+	} 
+	if server != nil || node != nil {
+		return true, nil
+	} else {
+		return false, err
 	}
-	return true, nil
 }
 
 // InstanceShutdownByProviderID returns true if the instance is shutdown in cloudprovider
 func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID string) (bool, error) {
-	klog.V(4).Infof("InstanceShutdownByProviderID(%v) is called", providerID)
+	klog.V(0).Infof("InstanceShutdownByProviderID(%v) is called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
 		return false, err
 	}
-	server, err := serverByID(ctx, s.gclient, serverID)
-	if errors.Is(err, gobizfly.ErrNotFound) {
+	server, node, err := serverByID(ctx, s.gclient, serverID)
+	if errors.Is(err, gobizfly.ErrNotFound) || err != nil {
 		return false, nil
 	}
-	if err != nil {
-		return false, err
-	}
-	if server.Status == instanceShutoff {
-		return true, nil
-	}
+	if server != nil {
+		if server.Status == instanceShutoff {
+			return true, nil
+		}
+	} else if node != nil {
+		if node.Deleted == true {
+			return true, nil
+		}
+	} 
 	return false, nil
 }
 
 // nodeAddresses returns addresses of server
-func nodeAdddresses(server *gobizfly.Server) ([]v1.NodeAddress, error) {
+func nodeAdddresses(server *gobizfly.Server, node *gobizfly.EverywhereNode) ([]v1.NodeAddress, error) {
 	var addresses []v1.NodeAddress
-	for i := range(server.IPAddresses.LanAddresses) {
-		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: server.IPAddresses.LanAddresses[i].Address})
+	if server != nil {
+		for i := range(server.IPAddresses.LanAddresses) {
+			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: server.IPAddresses.LanAddresses[i].Address})
+		}
+		for i := range(server.IPAddresses.WanV4Addresses) {
+			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: server.IPAddresses.WanV4Addresses[i].Address})
+		}
+		return addresses, nil
 	}
-	for i := range(server.IPAddresses.WanV4Addresses) {
-		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: server.IPAddresses.WanV4Addresses[i].Address})
+	if node != nil {
+		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: node.PrivateIP})
+		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: node.PublicIP})
+		return addresses, nil
 	}
 	return addresses, nil
 }
 
-func serverByID(ctx context.Context, client *gobizfly.Client, id string) (*gobizfly.Server, error) {
-	server, err := client.Server.Get(ctx, id)
-	if err != nil {
-		return nil, err
+func serverByID(ctx context.Context, client *gobizfly.Client, id string) (*gobizfly.Server, *gobizfly.EverywhereNode, error) {
+	server, _ := client.Server.Get(ctx, id)
+	node, _ := client.KubernetesEngine.GetEverywhere(ctx, id)
+
+	var err error
+	if server != nil || node != nil {
+		return server, node, err
+	} else {
+		err = fmt.Errorf("ProviderID doesn't exist in both CS and BKE")
+		return server, node, err
 	}
-	return server, nil
 }
 
 func serverByName(ctx context.Context, client *gobizfly.Client, name types.NodeName) (*gobizfly.Server, error) {
@@ -227,7 +261,7 @@ func (s *servers) GetZoneByNodeName(ctx context.Context, client *gobizfly.Client
 	}
 	// TODO add region for zone
 	zone := cloudprovider.Zone{FailureDomain: server.AvailabilityZone}
-	klog.V(4).Infof("The instance %s in zone %v", server.Name, zone)
+	klog.V(0).Infof("The instance %s in zone %v", server.Name, zone)
 	return zone, nil
 }
 
