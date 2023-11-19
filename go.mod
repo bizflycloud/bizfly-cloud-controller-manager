@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/bizflycloud/gobizfly v1.0.18-0.20231117062001-9a484a9ebec7
-	github.com/mitchellh/mapstructure v1.1.2
+	github.com/mitchellh/mapstructure v1.5.0
 	github.com/spf13/pflag v1.0.5
 	k8s.io/api v0.26.0
 	k8s.io/apimachinery v0.26.0
