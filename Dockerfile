@@ -5,7 +5,11 @@
 FROM golang:1.20.10-alpine3.17   AS build-env
 WORKDIR /app
 ADD . /app
-RUN cd /app && GO111MODULE=on GOARCH=amd64 go build -o bizfly-cloud-controller-manager cmd/bizfly-cloud-controller-manager/main.go
+RUN cd /app
+run GO111MODULE=on GOARCH=amd64 go build -o bizfly-cloud-controller-manager cmd/bizfly-cloud-controller-manager/main.go
+# RUN --mount=type=cache,id=gomod,target=/go/pkg/mod \
+#     --mount=type=cache,id=gobuild,target=/root/.cache/go-build \
+#     GO111MODULE=on GOOS=linux GOARCH=amd64 go build -o bizfly-cloud-controller-manager cmd/bizfly-cloud-controller-manager/main.go
 
 FROM amd64/alpine:3.17
 
