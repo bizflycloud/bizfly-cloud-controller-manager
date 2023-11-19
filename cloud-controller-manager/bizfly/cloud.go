@@ -32,7 +32,6 @@ import (
 const (
 	// ProviderName specifies the name for the Bizfly provider
 	ProviderName  string = "bizflycloud"
-	EverywhereProviderName  string = "bke_bizflycloud"
 	defaultRegion string = "HN"
 	authPassword  string = "password"
 	authAppCred   string = "application_credential"
