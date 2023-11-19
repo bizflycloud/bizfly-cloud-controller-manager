@@ -234,7 +234,7 @@ func serverByID(ctx context.Context, client *gobizfly.Client, id string) (*gobiz
 		return server, node, err
 	} else {
 		err = fmt.Errorf("ProviderID doesn't exist in both CS and BKE")
-		return server, node, err
+		return nil, nil, err
 	}
 }
 
