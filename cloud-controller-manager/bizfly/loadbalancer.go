@@ -213,10 +213,13 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			// get pools
 			for portIndex, port := range ports {
 				listener, _ := getListenerForPort(oldListeners, port)
-				old_pool, _ := getPoolByListenerID(ctx, l.gclient, loadbalancer.ID, listener.ID)
+				if listener == nil { 
+					continue 
+				}
+				oldPool, _ := getPoolByListenerID(ctx, l.gclient, loadbalancer.ID, listener.ID)
 				// get current pool protocol
 				poolProtocol := false
-				if old_pool.Protocol == "PROXY" {
+				if oldPool.Protocol == "PROXY" {
 					poolProtocol = true
 				} 
 				if poolProtocol == useProxyProtocol {
@@ -294,7 +297,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 
 					// Delete old pool members
 					klog.Infof("Delete old pool for listener")
-					err = deletePool(ctx, l.gclient, old_pool.ID)
+					err = deletePool(ctx, l.gclient, oldPool.ID)
 					if err != nil {
 						return nil, err
 					}
