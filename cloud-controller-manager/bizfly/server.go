@@ -210,10 +210,16 @@ func nodeAdddresses(server *gobizfly.Server, node *gobizfly.EverywhereNode) ([]v
 	var addresses []v1.NodeAddress
 	if server != nil {
 		for i := range server.IPAddresses.LanAddresses {
-			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: server.IPAddresses.LanAddresses[i].Address})
+			addresses = append(
+				addresses,
+				v1.NodeAddress{Type: v1.NodeInternalIP, Address: server.IPAddresses.LanAddresses[i].Address},
+			)
 		}
 		for i := range server.IPAddresses.WanV4Addresses {
-			addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: server.IPAddresses.WanV4Addresses[i].Address})
+			addresses = append(
+				addresses,
+				v1.NodeAddress{Type: v1.NodeExternalIP, Address: server.IPAddresses.WanV4Addresses[i].Address},
+			)
 		}
 		return addresses, nil
 	}
@@ -225,7 +231,11 @@ func nodeAdddresses(server *gobizfly.Server, node *gobizfly.EverywhereNode) ([]v
 	return addresses, nil
 }
 
-func serverByID(ctx context.Context, client *gobizfly.Client, id string) (*gobizfly.Server, *gobizfly.EverywhereNode, error) {
+func serverByID(
+	ctx context.Context,
+	client *gobizfly.Client,
+	id string,
+) (*gobizfly.Server, *gobizfly.EverywhereNode, error) {
 	server, err := client.Server.Get(ctx, id)
 	if err != nil {
 		serverError := err
@@ -254,7 +264,11 @@ func serverByName(ctx context.Context, client *gobizfly.Client, name types.NodeN
 	return nil, cloudprovider.InstanceNotFound
 }
 
-func (s *servers) GetZoneByNodeName(ctx context.Context, client *gobizfly.Client, nodeName types.NodeName) (cloudprovider.Zone, error) {
+func (s *servers) GetZoneByNodeName(
+	ctx context.Context,
+	client *gobizfly.Client,
+	nodeName types.NodeName,
+) (cloudprovider.Zone, error) {
 	server, err := serverByName(ctx, client, nodeName)
 	if err != nil {
 		return cloudprovider.Zone{}, err
@@ -272,7 +286,6 @@ var providerIDRegexp = regexp.MustCompile(`^` + ProviderName + `://([^/]+)$`)
 // A providerID is build out of '${ProviderName}:///${instance-id}'which contains ':///'.
 // See cloudprovider.GetInstanceProviderID and Instances.InstanceID.
 func serverIDFromProviderID(providerID string) (instanceID string, err error) {
-
 	// https://github.com/kubernetes/kubernetes/issues/85731
 	if providerID != "" && !strings.Contains(providerID, "://") {
 		providerID = ProviderName + "://" + providerID
@@ -280,7 +293,10 @@ func serverIDFromProviderID(providerID string) (instanceID string, err error) {
 
 	matches := providerIDRegexp.FindStringSubmatch(providerID)
 	if len(matches) != 2 {
-		return "", fmt.Errorf("ProviderID \"%w\" didn't match expected format \"bizflycloud:///InstanceID\"", providerID)
+		return "", fmt.Errorf(
+			"ProviderID \"%w\" didn't match expected format \"bizflycloud:///InstanceID\"",
+			providerID,
+		)
 	}
 	return matches[1], nil
 }
