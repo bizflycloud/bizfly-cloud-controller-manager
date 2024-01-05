@@ -226,16 +226,16 @@ func nodeAdddresses(server *gobizfly.Server, node *gobizfly.EverywhereNode) ([]v
 }
 
 func serverByID(ctx context.Context, client *gobizfly.Client, id string) (*gobizfly.Server, *gobizfly.EverywhereNode, error) {
-	server, _ := client.Server.Get(ctx, id)
-	node, _ := client.KubernetesEngine.GetEverywhere(ctx, id)
-
-	var err error
-	if server != nil || node != nil {
-		return server, node, err
-	} else {
-		err = fmt.Errorf("ProviderID doesn't exist in both CS and BKE")
-		return nil, nil, err
+	server, err := client.Server.Get(ctx, id)
+	if err != nil {
+		serverError := err
+		node, err := client.KubernetesEngine.GetEverywhere(ctx, id)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error fetching node: %v, and cloud server: %v", serverError, err)
+		}
+		return nil, node, nil
 	}
+	return server, nil, nil
 }
 
 func serverByName(ctx context.Context, client *gobizfly.Client, name types.NodeName) (*gobizfly.Server, error) {
