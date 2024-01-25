@@ -26,17 +26,15 @@ import (
 	"github.com/bizflycloud/bizfly-cloud-controller-manager/cloud-controller-manager/bizfly"
 	_ "github.com/bizflycloud/gobizfly"
 	"github.com/spf13/pflag"
+	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/cloud-provider/app"
 	"k8s.io/cloud-provider/app/config"
 	"k8s.io/cloud-provider/options"
 	"k8s.io/component-base/cli/flag"
 	"k8s.io/component-base/logs"
-	"k8s.io/apimachinery/pkg/util/wait"
 
 	"k8s.io/klog/v2"
-
-
 )
 
 func main() {

@@ -51,7 +51,7 @@ const (
 	INTERNAL_NETWORK_TYPE = "internal"
 	EXTERNAL_NETWORK_TYPE = "external"
 
-	SMALL_LB_TYPE = "small"
+	SMALL_LB_TYPE  = "small"
 	MEDIUM_LB_TYPE = "medium"
 	// loadbalancerDelete* is configuration of exponential backoff for
 	// waiting for delete operation to complete. Starting with 1
@@ -67,7 +67,7 @@ const (
 	annotationEnableProxyProtocol = "kubernetes.bizflycloud.vn/enable-proxy-protocol"
 	annotationVPCNetworkName      = "kubernetes.bizflycloud.vn/vpc-network-name"
 
-	annotationEnableIngressHostname = "kubernetes.bizflycloud.vn/enable-ingress-hostname"
+	annotationEnableIngressHostname        = "kubernetes.bizflycloud.vn/enable-ingress-hostname"
 	annotationLoadBalancerTargetNodeLabels = "kubernetes.bizflycloud.vn/target-node-labels"
 	// See https://nip.io
 	defaultProxyHostnameSuffix = "nip.io"
@@ -117,7 +117,7 @@ func cutString(original string) string {
 	return original
 }
 
-//getBoolFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's boolean value or a specified defaultSetting
+// getBoolFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's boolean value or a specified defaultSetting
 func getBoolFromServiceAnnotation(service *v1.Service, annotationKey string, defaultSetting bool) (bool, error) {
 	klog.Infof("getBoolFromServiceAnnotation(%s/%s, %v, %v)", service.Namespace, service.Name, annotationKey, defaultSetting)
 	if annotationValue, ok := service.Annotations[annotationKey]; ok {
@@ -213,15 +213,15 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			// get pools
 			for portIndex, port := range ports {
 				listener, _ := getListenerForPort(oldListeners, port)
-				if listener == nil { 
-					continue 
+				if listener == nil {
+					continue
 				}
 				oldPool, _ := getPoolByListenerID(ctx, l.gclient, loadbalancer.ID, listener.ID)
 				// get current pool protocol
 				poolProtocol := false
 				if oldPool.Protocol == "PROXY" {
 					poolProtocol = true
-				} 
+				}
 				if poolProtocol == useProxyProtocol {
 					klog.Infof("Pool Protocol proxy enabled")
 					continue
@@ -756,7 +756,7 @@ func waitLoadbalancerDeleted(ctx context.Context, client *gobizfly.Client, loadb
 	return err
 }
 
-//getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
+// getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
 func getStringFromServiceAnnotation(service *v1.Service, annotationKey string, defaultSetting string) string {
 	klog.Infof("getStringFromServiceAnnotation(%v, %v, %v)", service, annotationKey, defaultSetting)
 	if annotationValue, ok := service.Annotations[annotationKey]; ok {
@@ -839,11 +839,11 @@ func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gob
 	}
 	poolName := cutString(fmt.Sprintf("pool_%d_%s", portIndex, lbName))
 	pcr := gobizfly.PoolCreateRequest{
-		Name:								&poolName,
+		Name:               &poolName,
 		Protocol:           poolProtocol,
 		LBAlgorithm:        ROUND_ROBIN, // TODO use annotation for algorithm
 		SessionPersistence: sessionPersistence,
-		ListenerID: 			 	listener.ID,
+		ListenerID:         listener.ID,
 	}
 	if isdefault == false {
 		pcr.ListenerID = ""
