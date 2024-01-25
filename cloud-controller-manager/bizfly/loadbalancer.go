@@ -542,8 +542,8 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			klog.Errorf("loadbalancer does not exist for Service %w", serviceName)
-			return fmt.Errorf("loadbalancer does not exist for Service %w", serviceName)
+			klog.Errorf("loadbalancer does not exist for Service %s", serviceName)
+			return fmt.Errorf("loadbalancer does not exist for Service %s", serviceName)
 		}
 		return err
 	}
@@ -556,8 +556,8 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 	lbListeners := make(map[portKey]*gobizfly.Listener)
 	listeners, err := getListenersByLoadBalancerID(ctx, l.gclient, lb.ID)
 	if err != nil {
-		klog.Errorf("error getting listeners for LB %w: %v", lb.ID, err)
-		return fmt.Errorf("error getting listeners for LB %w: %v", lb.ID, err)
+		klog.Errorf("error getting listeners for LB %s: %s", lb.ID, err)
+		return fmt.Errorf("error getting listeners for LB %s: %s", lb.ID, err)
 	}
 
 	for _, l := range listeners {
@@ -571,8 +571,8 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 	for _, listenerID := range listenerIDs {
 		pool, err := getPoolByListenerID(ctx, l.gclient, lb.ID, listenerID)
 		if err != nil {
-			klog.Errorf("error getting pool for listener %w: %v", listenerID, err)
-			return fmt.Errorf("error getting pool for listener %w: %v", listenerID, err)
+			klog.Errorf("error getting pool for listener %s: %s", listenerID, err)
+			return fmt.Errorf("error getting pool for listener %s: %s", listenerID, err)
 		}
 		lbPools[listenerID] = pool
 	}
@@ -595,20 +595,20 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 			Port:     int(port.Port),
 		}]
 		if !ok {
-			klog.Errorf("loadbalancer %w does not contain required listener for port %d and protocol %w", lb.ID, port.Port, port.Protocol)
-			return fmt.Errorf("loadbalancer %w does not contain required listener for port %d and protocol %w", lb.ID, port.Port, port.Protocol)
+			klog.Errorf("loadbalancer %s does not contain required listener for port %d and protocol %s", lb.ID, port.Port, port.Protocol)
+			return fmt.Errorf("loadbalancer %s does not contain required listener for port %d and protocol %s", lb.ID, port.Port, port.Protocol)
 		}
 
 		// Get pool associated with this listener
 		pool, ok := lbPools[listener.ID]
 		if !ok {
-			return fmt.Errorf("loadbalancer %w does not contain required pool for listener %w", lb.ID, listener.ID)
+			return fmt.Errorf("loadbalancer %s does not contain required pool for listener %s", lb.ID, listener.ID)
 		}
 
 		// Find existing pool members (by address) for this port
 		getMembers, err := getMembersByPoolID(ctx, l.gclient, pool.ID)
 		if err != nil {
-			return fmt.Errorf("error getting pool members %w: %v", pool.ID, err)
+			return fmt.Errorf("error getting pool members %s: %s", pool.ID, err)
 		}
 		members := make(map[string]*gobizfly.Member)
 		for _, member := range getMembers {
@@ -631,8 +631,8 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 			}
 			provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lb.ID)
 			if err != nil {
-				klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
-				return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %w", provisioningStatus)
+				klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
+				return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
 			}
 		}
 
@@ -642,14 +642,19 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 				// Still present, do not delete member
 				continue
 			}
+			memberExists := memberExistsInCS(ctx, l.gclient, member.ID)
+			if memberExists {
+				klog.Errorf("Member %s still exists in CS, skipping deletion", member.ID)
+				return nil
+			}
 			err = l.gclient.Member.Delete(ctx, pool.ID, member.ID)
 			if err != nil && !cpoerrors.IsNotFound(err) {
 				return err
 			}
 			provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lb.ID)
 			if err != nil {
-				klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %w", provisioningStatus)
-				return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %w", provisioningStatus)
+				klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %s", provisioningStatus)
+				return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %s", provisioningStatus)
 			}
 		}
 	}
@@ -1051,4 +1056,20 @@ func getKeyValueFromServiceAnnotation(service *v1.Service, annotationKey string)
 		}
 	}
 	return additionalTags
+}
+
+func memberExistsInCS(ctx context.Context, client *gobizfly.Client, serverID string) (bool) {
+	server, err := client.Server.Get(ctx, serverID)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return false
+		} else {
+			return true
+		}
+	}
+	if server != nil {
+		return false
+	} else {
+		return true
+	}
 }
