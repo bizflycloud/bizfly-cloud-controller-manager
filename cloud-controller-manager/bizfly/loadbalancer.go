@@ -218,58 +218,20 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 				}
 				oldPool, _ := getPoolByListenerID(ctx, l.gclient, loadbalancer.ID, listener.ID)
 				// get current pool protocol
-				poolProtocol := false
-				if oldPool.Protocol == "PROXY" {
-					poolProtocol = true
-				}
-				if poolProtocol == useProxyProtocol {
-					klog.Infof("Pool Protocol proxy enabled")
+				if oldPool.Protocol == "PROXY" && useProxyProtocol {
+					klog.Infof("Pool %s already used PROXY protocol", oldPool.ID)
+					continue
+				} else if !useProxyProtocol && oldPool.Protocol != "PROXY" {
+					klog.Infof("Pool %s already used %s protocol", oldPool.ID, oldPool.Protocol)
 					continue
 				} else {
-					klog.Infof("Current pool protocol: %v", poolProtocol)
+					klog.Infof("Changing pool protocol detected")
+					klog.Infof("Current pool protocol: %v", oldPool.Protocol)
 					klog.Infof("Use Proxy Protocol: %v", useProxyProtocol)
 
-					//create new pool
-					new_pool, err := l.createPoolForListener(ctx, listener, portIndex, loadbalancer.ID, name, persistence, useProxyProtocol, false)
-					klog.Infof("Pool created for listener %s: %s", listener.ID, new_pool.ID)
+					err := l.changePoolProtocol(ctx, name, useProxyProtocol, listener, portIndex, port, loadbalancer.ID, persistence, nodes, oldPool)
 					if err != nil {
 						return nil, err
-					}
-					provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
-					if err != nil {
-						klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %s", provisioningStatus)
-						return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %s", provisioningStatus)
-					}
-
-					// Create Batch update members
-					err = batchUpdateMembers(ctx, l.gclient, new_pool.ID, loadbalancer.ID, nodes, &port, portIndex, name)
-					if err != nil {
-						return nil, err
-					}
-
-					// update listener
-					klog.Infof("Update new poolID for listener")
-					_, err = updateListenerDefaultPool(ctx, l.gclient, new_pool.ID, listener.ID)
-					if err != nil {
-						klog.Errorf("Update new poolID for listener failed: %s", err)
-						return nil, err
-					}
-					provisioningStatus, err = waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
-					if err != nil {
-						klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
-						return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
-					}
-
-					// Delete old pool members
-					klog.Infof("Delete old pool for listener")
-					err = deletePool(ctx, l.gclient, oldPool.ID)
-					if err != nil {
-						return nil, err
-					}
-					provisioningStatus, err = waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
-					if err != nil {
-						klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
-						return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
 					}
 				}
 			}
@@ -329,26 +291,14 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			}
 		}
 
-		members, err := getMembersByPoolID(ctx, l.gclient, pool.ID)
-		klog.Infof("Current member in pool %s: %v", pool.ID, members)
-		if err != nil && !cpoerrors.IsNotFound(err) {
-			return nil, fmt.Errorf("error getting pool members %s: %s", pool.ID, err)
-		}
-		err = batchUpdateMembers(ctx, l.gclient, pool.ID, loadbalancer.ID, nodes, &port, portIndex, name)
+		nodesList := filterTargetNodes(apiService, nodes)
+		when := "ensuring loadbalancer"
+		members, err := batchUpdateMembers(ctx, l.gclient, pool.ID, loadbalancer.ID, nodesList, &port, portIndex, name, when)
 		if err != nil {
 			return nil, err
 		}
+		klog.Infof("number of members after batchUpdate for port %v: %v", port.Port, len(members))
 
-		// Delete obsolete members for this pool
-		for _, member := range members {
-			klog.Infof("Deleting obsolete member %s for pool %s address %s", member.ID, pool.ID, member.Address)
-			err := l.gclient.Member.Delete(ctx, pool.ID, member.ID)
-			provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
-			if err != nil {
-				klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %s", provisioningStatus)
-				return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %s", provisioningStatus)
-			}
-		}
 		monitorID := pool.HealthMonitorID
 		if monitorID == "" {
 			klog.Infof("Creating monitor for pool %s", pool.ID)
@@ -394,22 +344,13 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 				}
 			}
 			// get and delete pool members
-			members, err := getMembersByPoolID(ctx, l.gclient, pool.ID)
-			if err != nil && !cpoerrors.IsNotFound(err) {
-				return nil, fmt.Errorf("error getting members for pool %s: %v", pool.ID, err)
-			}
-			for _, member := range members {
-				klog.Infof("Deleting obsolete member %s for pool %s address %s", member.ID, pool.ID, member.Address)
-				err := l.gclient.Member.Delete(ctx, pool.ID, member.ID)
-				if err != nil && !cpoerrors.IsNotFound(err) {
-					klog.Errorf("error deleting obsolete member %s for pool %s address %s: %v", member.ID, pool.ID, member.Address, err)
-					return nil, fmt.Errorf("error deleting obsolete member %s for pool %s address %s: %v", member.ID, pool.ID, member.Address, err)
-				}
-				provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
-				if err != nil {
-					klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %s", provisioningStatus)
-					return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %s", provisioningStatus)
-				}
+			nodesList := []*v1.Node{}
+			port := v1.ServicePort{}
+			portIndex := 0
+			when := "delete remaining obsolete listener"
+			_, err := batchUpdateMembers(ctx, l.gclient, pool.ID, loadbalancer.ID, nodesList, &port, portIndex, name, when)
+			if err != nil {
+				return nil, err
 			}
 			klog.Infof("Deleting obsolete pool %s for listener %s", pool.ID, listener.ID)
 			// delete pool
@@ -1005,10 +946,13 @@ func memberExistsInCS(ctx context.Context, client *gobizfly.Client, serverID str
 	}
 }
 
-func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID string, lbID string, nodes []*v1.Node, port *v1.ServicePort, portIndex int, name string) error {
+func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID string, lbID string, nodes []*v1.Node, port *v1.ServicePort, portIndex int, name string, when string) ([]*gobizfly.Member, error) {
 	batchUpdateNodeList := []gobizfly.ExtendMemberUpdateRequest{}
-	members, _ := getMembersByPoolID(ctx, client, poolID)
-	klog.Infof("members in batch update %v", members)
+	members, err := getMembersByPoolID(ctx, client, poolID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting pool members %s: %s", poolID, err)
+	}
+	klog.Infof("Number of members in batchUpdate %v", len(members))
 	for _, node := range nodes {
 		addr, err := nodeAddressForLB(node)
 
@@ -1019,7 +963,7 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 				continue
 			} else {
 				klog.Errorf("error getting address for node %s: %s", node.Name, err)
-				return fmt.Errorf("error getting address for node %s: %s", node.Name, err)
+				return nil, fmt.Errorf("error getting address for node %s: %s", node.Name, err)
 			}
 		}
 		if !memberExists(members, addr, int(port.NodePort)) {
@@ -1032,30 +976,82 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 				ProtocolPort:        int(port.NodePort),
 			})
 		} else {
+			member := gobizfly.MemberUpdateRequest{
+				Name: cutString(fmt.Sprintf("member_%d_%s_%s", portIndex, node.Name, name)),
+			}
+			batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.ExtendMemberUpdateRequest{
+				MemberUpdateRequest: member,
+				Address:             addr,
+				ProtocolPort:        int(port.NodePort),
+			})
 			// After all members have been processed, remaining members are deleted as obsolete.
 			members = popMember(members, addr, int(port.NodePort))
 		}
 	}
 
+	klog.Infof("Number of batchUpdateNodeList %v", len(batchUpdateNodeList))
 	klog.Infof("batchUpdateNodeList %v", batchUpdateNodeList)
-	klog.Infof("Batch creating members for pool %s", poolID)
-	if len(batchUpdateNodeList) == 0 {
-		klog.Infof("Nodes are all healthy")
-		return nil
-	} else {
-		err := client.Member.BatchUpdate(ctx, poolID, &gobizfly.BatchMemberUpdateRequest{
-			Members: batchUpdateNodeList,
-		})
-		if err != nil {
-			klog.Infof("error batch update LB pool members %s", err)
-			return fmt.Errorf("error batch update LB pool members %s", err)
-		}
-
+	klog.Infof("Batch creating members for pool %s when %s", poolID, when)
+	err = client.Member.BatchUpdate(ctx, poolID, &gobizfly.BatchMemberUpdateRequest{
+		Members: batchUpdateNodeList,
+	})
+	if err != nil {
+		klog.Infof("error batch update LB pool members %s", err)
+		return nil, fmt.Errorf("error batch update LB pool members %s", err)
 	}
+
 	provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, client, lbID)
+	if err != nil {
+		klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
+		return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
+	}
+	return members, nil
+}
+
+func (l *loadbalancers) changePoolProtocol(ctx context.Context, lbName string, useProxyProtocol bool, listener *gobizfly.Listener, portIndex int, port v1.ServicePort, lbID string, persistence *gobizfly.SessionPersistence, nodes []*v1.Node, oldPool *gobizfly.Pool) error {
+	//create new pool
+	new_pool, err := l.createPoolForListener(ctx, listener, portIndex, lbID, lbName, persistence, useProxyProtocol, false)
+	klog.Infof("Pool created for listener %s: %s", listener.ID, new_pool.ID)
+	if err != nil {
+		return err
+	}
+	provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lbID)
+	if err != nil {
+		klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %s", provisioningStatus)
+		return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %s", provisioningStatus)
+	}
+
+	// Create Batch update members
+	when := "change protocol in ensuring loadbalancer"
+	_, err = batchUpdateMembers(ctx, l.gclient, new_pool.ID, lbID, nodes, &port, portIndex, lbName, when)
+	if err != nil {
+		return err
+	}
+
+	// update listener
+	klog.Infof("Update new poolID for listener")
+	_, err = updateListenerDefaultPool(ctx, l.gclient, new_pool.ID, listener.ID)
+	if err != nil {
+		klog.Errorf("Update new poolID for listener failed: %s", err)
+		return err
+	}
+	provisioningStatus, err = waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lbID)
 	if err != nil {
 		klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
 		return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
 	}
+
+	// Delete old pool members
+	klog.Infof("Delete old pool for listener")
+	err = deletePool(ctx, l.gclient, oldPool.ID)
+	if err != nil {
+		return err
+	}
+	provisioningStatus, err = waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lbID)
+	if err != nil {
+		klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
+		return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
+	}
+
 	return nil
 }
