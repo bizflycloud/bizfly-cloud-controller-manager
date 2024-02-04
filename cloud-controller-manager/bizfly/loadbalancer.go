@@ -293,11 +293,11 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 
 		nodesList := filterTargetNodes(apiService, nodes)
 		when := "ensuring loadbalancer"
-		members, err := batchUpdateMembers(ctx, l.gclient, pool.ID, loadbalancer.ID, nodesList, &port, portIndex, name, when)
+		updatedMembers, err := batchUpdateMembers(ctx, l.gclient, pool.ID, loadbalancer.ID, nodesList, &port, portIndex, name, when)
 		if err != nil {
 			return nil, err
 		}
-		klog.Infof("number of members after batchUpdate for port %v: %v", port.Port, len(members))
+		klog.Infof("number of members after batchUpdate for port %v: %v", port.Port, updatedMembers)
 
 		monitorID := pool.HealthMonitorID
 		if monitorID == "" {
@@ -477,58 +477,11 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 			return fmt.Errorf("loadbalancer %s does not contain required pool for listener %s", lb.ID, listener.ID)
 		}
 
-		// Find existing pool members (by address) for this port
-		getMembers, err := getMembersByPoolID(ctx, l.gclient, pool.ID)
+		updatedMembers, err := batchUpdateMembers(ctx, l.gclient, pool.ID, lb.ID, nodesList, &port, portIndex, name, "updating loadbalancer")
 		if err != nil {
-			return fmt.Errorf("error getting pool members %s: %s", pool.ID, err)
+			return err
 		}
-		members := make(map[string]*gobizfly.Member)
-		for _, member := range getMembers {
-			members[member.Address] = member
-		}
-
-		// Add any new members for this port
-		for addr, node := range addrs {
-			if _, ok := members[addr]; ok && members[addr].ProtocolPort == int(port.NodePort) {
-				// Already exists, do not create member
-				continue
-			}
-			_, err := l.gclient.Member.Create(ctx, pool.ID, &gobizfly.MemberCreateRequest{
-				Name:         cutString(fmt.Sprintf("member_%d_%s_%s_", portIndex, node.Name, lb.Name)),
-				Address:      addr,
-				ProtocolPort: int(port.NodePort),
-			})
-			if err != nil {
-				return err
-			}
-			provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lb.ID)
-			if err != nil {
-				klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
-				return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
-			}
-		}
-
-		// Remove any old members for this port
-		for _, member := range members {
-			if _, ok := addrs[member.Address]; ok && member.ProtocolPort == int(port.NodePort) {
-				// Still present, do not delete member
-				continue
-			}
-			memberExists := memberExistsInCS(ctx, l.gclient, member.ID)
-			if memberExists {
-				klog.Errorf("Member %s still exists in CS, skipping deletion", member.ID)
-				return nil
-			}
-			err = l.gclient.Member.Delete(ctx, pool.ID, member.ID)
-			if err != nil && !cpoerrors.IsNotFound(err) {
-				return err
-			}
-			provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lb.ID)
-			if err != nil {
-				klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %s", provisioningStatus)
-				return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after deleting member, current provisioning status %s", provisioningStatus)
-			}
-		}
+		klog.Infof("number of members after batchUpdate for port %v: %v", port.Port, updatedMembers)
 	}
 	return nil
 }
@@ -946,66 +899,91 @@ func memberExistsInCS(ctx context.Context, client *gobizfly.Client, serverID str
 	}
 }
 
-func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID string, lbID string, nodes []*v1.Node, port *v1.ServicePort, portIndex int, name string, when string) ([]*gobizfly.Member, error) {
+func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID string, lbID string, nodes []*v1.Node, port *v1.ServicePort, portIndex int, name string, when string) (int, error) {
 	batchUpdateNodeList := []gobizfly.ExtendMemberUpdateRequest{}
 	members, err := getMembersByPoolID(ctx, client, poolID)
 	if err != nil {
-		return nil, fmt.Errorf("error getting pool members %s: %s", poolID, err)
+		return 0, fmt.Errorf("error getting pool members %s: %s", poolID, err)
 	}
-	klog.Infof("Number of members in batchUpdate %v", len(members))
-	for _, node := range nodes {
-		addr, err := nodeAddressForLB(node)
+	initialMembers := len(members)
+	klog.Infof("Number of members in batchUpdate %v", initialMembers)
 
-		if err != nil {
-			if errors.Is(err, ErrNoAddressFound) {
-				// Node failure, do not create member
-				klog.Warningf("Failed to create LB pool member for node %s: %s", node.Name, err)
-				continue
-			} else {
-				klog.Errorf("error getting address for node %s: %s", node.Name, err)
-				return nil, fmt.Errorf("error getting address for node %s: %s", node.Name, err)
+	if len(nodes) == 0 && len(members) > 0 {
+		// When vpn server crashes, append nodes to batchUpdateNodeList if members still exist in CS
+		for _, member := range members {
+			memberExists := memberExistsInCS(ctx, client, member.ID)
+			// If member exists in CS, then append to batchUpdateNodeList to maintaint the existsing members
+			if memberExists {
+				memberName := gobizfly.MemberUpdateRequest{
+					Name: member.Name,
+				}
+				batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.ExtendMemberUpdateRequest{
+					MemberUpdateRequest: memberName,
+					Address:             member.Address,
+					ProtocolPort:        int(port.NodePort),
+				})
 			}
 		}
-		if !memberExists(members, addr, int(port.NodePort)) {
-			member := gobizfly.MemberUpdateRequest{
-				Name: cutString(fmt.Sprintf("member_%d_%s_%s", portIndex, node.Name, name)),
+	} else {
+		for _, node := range nodes {
+			addr, err := nodeAddressForLB(node)
+
+			if err != nil {
+				if errors.Is(err, ErrNoAddressFound) {
+					// Node failure, do not create member
+					klog.Warningf("Failed to create LB pool member for node %s: %s", node.Name, err)
+					continue
+				} else {
+					klog.Errorf("error getting address for node %s: %s", node.Name, err)
+					return 0, fmt.Errorf("error getting address for node %s: %s", node.Name, err)
+				}
 			}
-			batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.ExtendMemberUpdateRequest{
-				MemberUpdateRequest: member,
-				Address:             addr,
-				ProtocolPort:        int(port.NodePort),
-			})
-		} else {
-			member := gobizfly.MemberUpdateRequest{
-				Name: cutString(fmt.Sprintf("member_%d_%s_%s", portIndex, node.Name, name)),
+			if !memberExists(members, addr, int(port.NodePort)) {
+				member := gobizfly.MemberUpdateRequest{
+					Name: cutString(fmt.Sprintf("member_%d_%s_%s", portIndex, node.Name, name)),
+				}
+				batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.ExtendMemberUpdateRequest{
+					MemberUpdateRequest: member,
+					Address:             addr,
+					ProtocolPort:        int(port.NodePort),
+				})
+			} else {
+				member := gobizfly.MemberUpdateRequest{
+					Name: cutString(fmt.Sprintf("member_%d_%s_%s", portIndex, node.Name, name)),
+				}
+				batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.ExtendMemberUpdateRequest{
+					MemberUpdateRequest: member,
+					Address:             addr,
+					ProtocolPort:        int(port.NodePort),
+				})
+				// After all members have been processed, remaining members are deleted as obsolete.
+				members = popMember(members, addr, int(port.NodePort))
 			}
-			batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.ExtendMemberUpdateRequest{
-				MemberUpdateRequest: member,
-				Address:             addr,
-				ProtocolPort:        int(port.NodePort),
-			})
-			// After all members have been processed, remaining members are deleted as obsolete.
-			members = popMember(members, addr, int(port.NodePort))
 		}
 	}
 
 	klog.Infof("Number of batchUpdateNodeList %v", len(batchUpdateNodeList))
 	klog.Infof("batchUpdateNodeList %v", batchUpdateNodeList)
 	klog.Infof("Batch creating members for pool %s when %s", poolID, when)
+	// If members aren't change, do nothing here
+	if len(batchUpdateNodeList) - initialMembers == 0 {
+		return 0, nil
+	}
+	// Only call batchUpdate if number of members are changed
 	err = client.Member.BatchUpdate(ctx, poolID, &gobizfly.BatchMemberUpdateRequest{
 		Members: batchUpdateNodeList,
 	})
 	if err != nil {
 		klog.Infof("error batch update LB pool members %s", err)
-		return nil, fmt.Errorf("error batch update LB pool members %s", err)
+		return 0, fmt.Errorf("error batch update LB pool members %s", err)
 	}
 
 	provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, client, lbID)
 	if err != nil {
 		klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
-		return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
+		return 0, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
 	}
-	return members, nil
+	return len(batchUpdateNodeList) - initialMembers, nil
 }
 
 func (l *loadbalancers) changePoolProtocol(ctx context.Context, lbName string, useProxyProtocol bool, listener *gobizfly.Listener, portIndex int, port v1.ServicePort, lbID string, persistence *gobizfly.SessionPersistence, nodes []*v1.Node, oldPool *gobizfly.Pool) error {
