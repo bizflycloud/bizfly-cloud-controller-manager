@@ -29,6 +29,20 @@ func (f *Framework) GetLBByName(ctx context.Context, clusterName string, service
 	return "", ErrNotFound
 }
 
+func (f *Framework) GetLB(ctx context.Context, clusterName string, serviceName string) (*gobizfly.LoadBalancer, error) {
+	name := cutString(fmt.Sprintf("kube_service_%s_%s_%s", clusterName, f.Namespace(), serviceName))
+	loadbalancers, err := f.GetBizflyClient().LoadBalancer.List(ctx, &gobizfly.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	for _, lb := range loadbalancers {
+		if lb.Name == name {
+			return lb, nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
 func (f *Framework) GetListners(ctx context.Context, lbId string) ([]*gobizfly.Listener, error) {
 	listeners, err := f.GetBizflyClient().Listener.List(ctx, lbId, &gobizfly.ListOptions{})
 	if err != nil {
