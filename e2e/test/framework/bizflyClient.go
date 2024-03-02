@@ -59,7 +59,7 @@ func (f *Framework) GetPools(ctx context.Context, lbId string) ([]*gobizfly.Pool
 	return pools, nil
 }
 
-func (f *Framework) GetMembersByPools(ctx context.Context, pools []*gobizfly.Pool) (int, error) {
+func (f *Framework) CountMembersByPools(ctx context.Context, pools []*gobizfly.Pool) (int, error) {
 	var members int
 	for _, pool := range pools {
 		listMembers, err := f.GetBizflyClient().Member.List(ctx, pool.ID, &gobizfly.ListOptions{})
@@ -67,6 +67,20 @@ func (f *Framework) GetMembersByPools(ctx context.Context, pools []*gobizfly.Poo
 			return 0, err
 		}
 		members += len(listMembers)
+	}
+	return members, nil
+}
+
+func (f *Framework) GetMembersByPools(ctx context.Context, pools []*gobizfly.Pool) ([]*gobizfly.Member, error) {
+	var members []*gobizfly.Member
+	for _, pool := range pools {
+		listMembers, err := f.GetBizflyClient().Member.List(ctx, pool.ID, &gobizfly.ListOptions{})
+		if err != nil {
+			return nil, err
+		}
+		for _, node := range listMembers {
+			members = append(members, node)
+		}
 	}
 	return members, nil
 }

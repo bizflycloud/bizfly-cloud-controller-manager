@@ -108,3 +108,15 @@ func (i *lbInvocation) GetLoadBalancerIps() ([]string, error) {
 	}
 	return serverAddr, nil
 }
+
+func (i *lbInvocation) UpdateService(selector, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool) error {
+	err := i.deleteEvents()
+	if err != nil {
+		return err
+	}
+	return i.createOrUpdateService(selector, annotations, ports, isSessionAffinityClientIP, false)
+}
+
+func (i *lbInvocation) deleteEvents() error {
+	return i.kubeClient.CoreV1().Events(i.Namespace()).DeleteCollection(context.TODO(), metav1.DeleteOptions{}, metav1.ListOptions{FieldSelector: "involvedObject.kind=Service"})
+}

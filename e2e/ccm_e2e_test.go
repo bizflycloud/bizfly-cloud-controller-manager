@@ -43,6 +43,7 @@ var _ = Describe("CCM E2E Tests", func() {
 		bizflyProxyProtocol = "kubernetes.bizflycloud.vn/enable-proxy-protocol"
 		bizflyNetworkType   = "kubernetes.bizflycloud.vn/load-balancer-network-type"
 		bizflyNodeLabel     = "kubernetes.bizflycloud.vn/target-node-labels"
+		bizflyLBType        = "kubernetes.bizflycloud.vn/load-balancer-type"
 	)
 
 	BeforeEach(func() {
@@ -87,6 +88,12 @@ var _ = Describe("CCM E2E Tests", func() {
 
 	createServiceWithAnnotations := func(labels, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool) {
 		Expect(f.LoadBalancer.CreateService(labels, annotations, ports, isSessionAffinityClientIP)).NotTo(HaveOccurred())
+		Eventually(f.LoadBalancer.GetServiceEndpoints).Should(Not(BeEmpty()))
+		ensureServiceLoadBalancer()
+	}
+
+	updateServiceWithAnnotations := func(labels, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool) {
+		Expect(f.LoadBalancer.UpdateService(labels, annotations, ports, isSessionAffinityClientIP)).NotTo(HaveOccurred())
 		Eventually(f.LoadBalancer.GetServiceEndpoints).Should(Not(BeEmpty()))
 		ensureServiceLoadBalancer()
 	}
@@ -171,7 +178,7 @@ var _ = Describe("CCM E2E Tests", func() {
 						return err
 					}).Should(BeNil())
 					Eventually(func() error {
-						members, err = f.GetMembersByPools(ctx, pools)
+						members, err = f.CountMembersByPools(ctx, pools)
 						fmt.Println("Members %i", members)
 						return err
 					}).Should(BeNil())
@@ -263,7 +270,7 @@ var _ = Describe("CCM E2E Tests", func() {
 						return err
 					}).Should(BeNil())
 					Eventually(func() error {
-						members, err = f.GetMembersByPools(ctx, pools)
+						members, err = f.CountMembersByPools(ctx, pools)
 						fmt.Println("Members %i", members)
 						return err
 					}).Should(BeNil())
@@ -351,7 +358,7 @@ var _ = Describe("CCM E2E Tests", func() {
 						return err
 					}).Should(BeNil())
 					Eventually(func() error {
-						members, err = f.GetMembersByPools(ctx, pools)
+						members, err = f.CountMembersByPools(ctx, pools)
 						fmt.Println("Members %i", members)
 						return err
 					}).Should(BeNil())
@@ -439,7 +446,7 @@ var _ = Describe("CCM E2E Tests", func() {
 						return err
 					}).Should(BeNil())
 					Eventually(func() error {
-						members, err = f.GetMembersByPools(ctx, pools)
+						members, err = f.CountMembersByPools(ctx, pools)
 						fmt.Println("Members %i", members)
 						return err
 					}).Should(BeNil())
@@ -454,5 +461,193 @@ var _ = Describe("CCM E2E Tests", func() {
 				})
 			})
 		})
+
+		Context("Update", func() {
+			AfterEach(func() {
+				err := root.Recycle()
+				Expect(err).NotTo(HaveOccurred())
+			})
+			Context("Load Balancer Proxy Protocol", func() {
+				var (
+					pods         []string
+					labels       map[string]string
+					servicePorts []core.ServicePort
+				)
+
+				BeforeEach(func() {
+					pods = []string{"test-pod-1", "test-pod-2"}
+					ports := []core.ContainerPort{
+						{
+							Name:          "http-1",
+							ContainerPort: 8080,
+						},
+					}
+					servicePorts = []core.ServicePort{
+						{
+							Name:       "http-1",
+							Port:       80,
+							TargetPort: intstr.FromInt(80),
+							Protocol:   "TCP",
+						},
+						{
+							Name:       "https-1",
+							Port:       443,
+							TargetPort: intstr.FromInt(80),
+							Protocol:   "TCP",
+						},
+					}
+					labels = map[string]string{
+						"app": "test-loadbalancer-change-type",
+					}
+
+					By("Creating Pods")
+					createPodWithLabel(pods, ports, framework.TestServerImage, labels, true)
+
+					By("Creating Service")
+					createServiceWithSelector(labels, servicePorts, false)
+				})
+
+				AfterEach(func() {
+					By("Deleting the Pods")
+					deletePods(pods)
+
+					By("Deleting the Service")
+					deleteService()
+				})
+
+				It("Should have change from TCP to PROXY for every pools", func() {
+					By("Update pool protocol from TCP PROXY")
+					updateServiceWithAnnotations(labels, map[string]string{
+						bizflyProxyProtocol: "true",
+					}, servicePorts, false)
+					var lb *gobizfly.LoadBalancer
+					var lbId string
+					var members int
+					var listeners []*gobizfly.Listener
+					var pools []*gobizfly.Pool
+					Eventually(func() error {
+						lb, err = f.GetLB(ctx, clusterName, framework.TestServerResourceName)
+						lbId = lb.ID
+						return err
+					}).Should(BeNil())
+					Eventually(func() error {
+						listeners, err = f.GetListners(ctx, lbId)
+						fmt.Println("Listeners %i", len(listeners))
+						return err
+					}).Should(BeNil())
+					Eventually(func() error {
+						pools, err = f.GetPools(ctx, lbId)
+						fmt.Println("Pools %i", len(pools))
+						return err
+					}).Should(BeNil())
+					Eventually(func() error {
+						members, err = f.CountMembersByPools(ctx, pools)
+						fmt.Println("Members %i", members)
+						return err
+					}).Should(BeNil())
+					Eventually(lbId).ShouldNot(Equal(""))
+					By("Checking numbers of Listners")
+					Eventually(len(listeners)).Should(Equal(2))
+					By("Checking numbers of Pools")
+					Eventually(len(pools)).Should(Equal(2))
+					By("Checking numbers of Members")
+					Eventually(members).Should(Equal(4))
+					By("Checking Pool Protocol")
+					Eventually(pools[0].Protocol).Should(Equal("PROXY"))
+					Eventually(pools[1].Protocol).Should(Equal("PROXY"))
+				})
+			})
+
+			Context("Load Balancer Target Node Label", func() {
+				var (
+					pods         []string
+					labels       map[string]string
+					servicePorts []core.ServicePort
+					annotations  map[string]string
+				)
+
+				BeforeEach(func() {
+					pods = []string{"test-pod-1", "test-pod-2"}
+					ports := []core.ContainerPort{
+						{
+							Name:          "http-1",
+							ContainerPort: 8080,
+						},
+					}
+					servicePorts = []core.ServicePort{
+						{
+							Name:       "http-1",
+							Port:       80,
+							TargetPort: intstr.FromInt(80),
+							Protocol:   "TCP",
+						},
+						{
+							Name:       "https-1",
+							Port:       443,
+							TargetPort: intstr.FromInt(80),
+							Protocol:   "TCP",
+						},
+					}
+					labels = map[string]string{
+						"app": "test-loadbalancer-change-type",
+					}
+					annotations = map[string]string{
+						bizflyNodeLabel: "test-ccm=node01",
+					}
+
+					By("Creating Pods")
+					createPodWithLabel(pods, ports, framework.TestServerImage, labels, true)
+
+					By("Creating Service")
+					createServiceWithAnnotations(labels, annotations, servicePorts, false)
+				})
+
+				AfterEach(func() {
+					By("Deleting the Pods")
+					deletePods(pods)
+
+					By("Deleting the Service")
+					deleteService()
+				})
+
+				It("Should have change from TCP to PROXY for every pools", func() {
+					var lb *gobizfly.LoadBalancer
+					var lbId string
+					var oldMembers []*gobizfly.Member
+					var newMembers []*gobizfly.Member
+					var pools []*gobizfly.Pool
+					//framework.GetNodeListByLabel()
+					Eventually(func() error {
+						lb, err = f.GetLB(ctx, clusterName, framework.TestServerResourceName)
+						lbId = lb.ID
+						return err
+					}).Should(BeNil())
+					Eventually(func() error {
+						pools, err = f.GetPools(ctx, lbId)
+						fmt.Println("Pools %i", len(pools))
+						return err
+					}).Should(BeNil())
+					Eventually(func() error {
+						oldMembers, err = f.GetMembersByPools(ctx, pools)
+						fmt.Println("Members %i", len(oldMembers))
+						return err
+					}).Should(BeNil())
+
+					By("Update pool protocol from TCP PROXY")
+					updateServiceWithAnnotations(labels, map[string]string{
+						bizflyNodeLabel: "test-ccm=node02",
+					}, servicePorts, false)
+
+					Eventually(func() error {
+						newMembers, err = f.GetMembersByPools(ctx, pools)
+						fmt.Println("Members %i", len(newMembers))
+						return err
+					}).Should(BeNil())
+					By("Checking change in targeted node")
+					Eventually(newMembers[0].Name).ShouldNot(Equal(oldMembers[0].Name))
+				})
+			})
+		})
+
 	})
 })
