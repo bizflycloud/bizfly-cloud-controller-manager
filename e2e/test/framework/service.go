@@ -10,10 +10,21 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func (i *lbInvocation) createOrUpdateService(selector, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP, isCreate bool) error {
+func (i *lbInvocation) createOrUpdateService(selector, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP, isCreate bool, isLB bool) error {
 	var sessionAffinity core.ServiceAffinity = "None"
+	var spec core.ServiceSpec
 	if isSessionAffinityClientIP {
 		sessionAffinity = "ClientIP"
+	}
+	spec = core.ServiceSpec{
+		Ports:           ports,
+		Selector:        selector,
+		SessionAffinity: sessionAffinity,
+	}
+	if isLB {
+		spec.Type = core.ServiceTypeLoadBalancer
+	} else {
+		spec.Type = core.ServiceTypeClusterIP
 	}
 	svc := &core.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -24,12 +35,7 @@ func (i *lbInvocation) createOrUpdateService(selector, annotations map[string]st
 				"app": "test-server-" + i.app,
 			},
 		},
-		Spec: core.ServiceSpec{
-			Ports:           ports,
-			Selector:        selector,
-			Type:            core.ServiceTypeLoadBalancer,
-			SessionAffinity: sessionAffinity,
-		},
+		Spec: spec,
 	}
 
 	service := i.kubeClient.CoreV1().Services(i.Namespace())
@@ -57,7 +63,7 @@ func (i *lbInvocation) createOrUpdateService(selector, annotations map[string]st
 }
 
 func (i *lbInvocation) CreateService(selector, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool) error {
-	return i.createOrUpdateService(selector, annotations, ports, isSessionAffinityClientIP, true)
+	return i.createOrUpdateService(selector, annotations, ports, isSessionAffinityClientIP, true, true)
 }
 
 func (i *lbInvocation) GetServiceEndpoints() ([]core.EndpointAddress, error) {
@@ -66,7 +72,7 @@ func (i *lbInvocation) GetServiceEndpoints() ([]core.EndpointAddress, error) {
 		return nil, err
 	}
 	if len(ep.Subsets) == 0 {
-		return nil, fmt.Errorf("No service endpoints found for %s", TestServerResourceName)
+		return nil, fmt.Errorf("no service endpoints found for %s", TestServerResourceName)
 	}
 	return ep.Subsets[0].Addresses, err
 }
@@ -109,12 +115,12 @@ func (i *lbInvocation) GetLoadBalancerIps() ([]string, error) {
 	return serverAddr, nil
 }
 
-func (i *lbInvocation) UpdateService(selector, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool) error {
+func (i *lbInvocation) UpdateService(selector, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool, isLB bool) error {
 	err := i.deleteEvents()
 	if err != nil {
 		return err
 	}
-	return i.createOrUpdateService(selector, annotations, ports, isSessionAffinityClientIP, false)
+	return i.createOrUpdateService(selector, annotations, ports, isSessionAffinityClientIP, false, isLB)
 }
 
 func (i *lbInvocation) deleteEvents() error {

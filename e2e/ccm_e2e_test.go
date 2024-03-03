@@ -12,14 +12,13 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 )
 
-func cutString(original string) string {
-	if len(original) > 255 {
-		original = original[:255]
+func EnsuredService(isDeleted bool) types.GomegaMatcher {
+	var ensureState string
+	if isDeleted {
+		ensureState = "DeletedLoadBalancer"
+	} else {
+		ensureState = "EnsuredLoadBalancer"
 	}
-	return original
-}
-
-func EnsuredService() types.GomegaMatcher {
 	return And(
 		WithTransform(func(e watch.Event) (string, error) {
 			event, ok := e.Object.(*core.Event)
@@ -28,7 +27,7 @@ func EnsuredService() types.GomegaMatcher {
 			}
 			fmt.Println(event.Reason)
 			return event.Reason, nil
-		}, Equal("EnsuredLoadBalancer")),
+		}, Equal(ensureState)),
 	)
 }
 
@@ -43,7 +42,6 @@ var _ = Describe("CCM E2E Tests", func() {
 		bizflyProxyProtocol = "kubernetes.bizflycloud.vn/enable-proxy-protocol"
 		bizflyNetworkType   = "kubernetes.bizflycloud.vn/load-balancer-network-type"
 		bizflyNodeLabel     = "kubernetes.bizflycloud.vn/target-node-labels"
-		bizflyLBType        = "kubernetes.bizflycloud.vn/load-balancer-type"
 	)
 
 	BeforeEach(func() {
@@ -53,10 +51,10 @@ var _ = Describe("CCM E2E Tests", func() {
 		Expect(len(workers)).Should(BeNumerically(">=", 2))
 	})
 
-	ensureServiceLoadBalancer := func() {
+	ensureServiceLoadBalancer := func(isDeleted bool) {
 		watcher, err := f.LoadBalancer.GetServiceWatcher()
 		Expect(err).NotTo(HaveOccurred())
-		Eventually(watcher.ResultChan()).Should(Receive(EnsuredService()))
+		Eventually(watcher.ResultChan()).Should(Receive(EnsuredService(isDeleted)))
 	}
 
 	createPodWithLabel := func(pods []string, ports []core.ContainerPort, image string, labels map[string]string, selectNode bool) {
@@ -80,22 +78,26 @@ var _ = Describe("CCM E2E Tests", func() {
 		Expect(f.LoadBalancer.DeleteService()).NotTo(HaveOccurred())
 	}
 
-	createServiceWithSelector := func(selector map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool) {
+	createServiceWithSelector := func(selector map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool, isDelete bool) {
 		Expect(f.LoadBalancer.CreateService(selector, nil, ports, isSessionAffinityClientIP)).NotTo(HaveOccurred())
 		Eventually(f.LoadBalancer.GetServiceEndpoints).Should(Not(BeEmpty()))
-		ensureServiceLoadBalancer()
+		ensureServiceLoadBalancer(isDelete)
 	}
 
-	createServiceWithAnnotations := func(labels, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool) {
+	createServiceWithAnnotations := func(labels, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool, isDelete bool) {
 		Expect(f.LoadBalancer.CreateService(labels, annotations, ports, isSessionAffinityClientIP)).NotTo(HaveOccurred())
 		Eventually(f.LoadBalancer.GetServiceEndpoints).Should(Not(BeEmpty()))
-		ensureServiceLoadBalancer()
+		ensureServiceLoadBalancer(isDelete)
 	}
 
-	updateServiceWithAnnotations := func(labels, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool) {
-		Expect(f.LoadBalancer.UpdateService(labels, annotations, ports, isSessionAffinityClientIP)).NotTo(HaveOccurred())
+	updateServiceWithAnnotations := func(labels, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool, isLB bool) {
+		Expect(f.LoadBalancer.UpdateService(labels, annotations, ports, isSessionAffinityClientIP, isLB)).NotTo(HaveOccurred())
 		Eventually(f.LoadBalancer.GetServiceEndpoints).Should(Not(BeEmpty()))
-		ensureServiceLoadBalancer()
+		if isLB {
+			ensureServiceLoadBalancer(false)
+		} else {
+			ensureServiceLoadBalancer(true)
+		}
 	}
 
 	Describe("Test", func() {
@@ -140,7 +142,7 @@ var _ = Describe("CCM E2E Tests", func() {
 					createPodWithLabel(pods, ports, framework.TestServerImage, labels, true)
 
 					By("Creating Service")
-					createServiceWithSelector(labels, servicePorts, false)
+					createServiceWithSelector(labels, servicePorts, false, false)
 				})
 
 				AfterEach(func() {
@@ -232,7 +234,7 @@ var _ = Describe("CCM E2E Tests", func() {
 					createPodWithLabel(pods, ports, framework.TestServerImage, labels, true)
 
 					By("Creating Service")
-					createServiceWithAnnotations(labels, annotations, servicePorts, false)
+					createServiceWithAnnotations(labels, annotations, servicePorts, false, false)
 				})
 
 				AfterEach(func() {
@@ -325,7 +327,7 @@ var _ = Describe("CCM E2E Tests", func() {
 					createPodWithLabel(pods, ports, framework.TestServerImage, labels, true)
 
 					By("Creating Service")
-					createServiceWithAnnotations(labels, annotations, servicePorts, false)
+					createServiceWithAnnotations(labels, annotations, servicePorts, false, false)
 				})
 
 				AfterEach(func() {
@@ -363,7 +365,7 @@ var _ = Describe("CCM E2E Tests", func() {
 						return err
 					}).Should(BeNil())
 					Eventually(lbId).ShouldNot(Equal(""))
-					By("Checking LB's network type")
+					By("Checking Load Balancer's network type")
 					Eventually(lb.NetworkType).Should(Equal("internal"))
 					By("Checking numbers of Listners")
 					Eventually(len(listeners)).Should(Equal(2))
@@ -413,7 +415,7 @@ var _ = Describe("CCM E2E Tests", func() {
 					createPodWithLabel(pods, ports, framework.TestServerImage, labels, true)
 
 					By("Creating Service")
-					createServiceWithAnnotations(labels, annotations, servicePorts, false)
+					createServiceWithAnnotations(labels, annotations, servicePorts, false, false)
 				})
 
 				AfterEach(func() {
@@ -504,7 +506,7 @@ var _ = Describe("CCM E2E Tests", func() {
 					createPodWithLabel(pods, ports, framework.TestServerImage, labels, true)
 
 					By("Creating Service")
-					createServiceWithSelector(labels, servicePorts, false)
+					createServiceWithSelector(labels, servicePorts, false, false)
 				})
 
 				AfterEach(func() {
@@ -519,7 +521,7 @@ var _ = Describe("CCM E2E Tests", func() {
 					By("Update pool protocol from TCP PROXY")
 					updateServiceWithAnnotations(labels, map[string]string{
 						bizflyProxyProtocol: "true",
-					}, servicePorts, false)
+					}, servicePorts, false, true)
 					var lb *gobizfly.LoadBalancer
 					var lbId string
 					var members int
@@ -599,7 +601,7 @@ var _ = Describe("CCM E2E Tests", func() {
 					createPodWithLabel(pods, ports, framework.TestServerImage, labels, true)
 
 					By("Creating Service")
-					createServiceWithAnnotations(labels, annotations, servicePorts, false)
+					createServiceWithAnnotations(labels, annotations, servicePorts, false, false)
 				})
 
 				AfterEach(func() {
@@ -616,7 +618,6 @@ var _ = Describe("CCM E2E Tests", func() {
 					var oldMembers []*gobizfly.Member
 					var newMembers []*gobizfly.Member
 					var pools []*gobizfly.Pool
-					//framework.GetNodeListByLabel()
 					Eventually(func() error {
 						lb, err = f.GetLB(ctx, clusterName, framework.TestServerResourceName)
 						lbId = lb.ID
@@ -636,7 +637,7 @@ var _ = Describe("CCM E2E Tests", func() {
 					By("Update pool protocol from TCP PROXY")
 					updateServiceWithAnnotations(labels, map[string]string{
 						bizflyNodeLabel: "test-ccm=node02",
-					}, servicePorts, false)
+					}, servicePorts, false, true)
 
 					Eventually(func() error {
 						newMembers, err = f.GetMembersByPools(ctx, pools)
@@ -647,6 +648,72 @@ var _ = Describe("CCM E2E Tests", func() {
 					Eventually(newMembers[0].Name).ShouldNot(Equal(oldMembers[0].Name))
 				})
 			})
+		})
+
+		Context("Delete", func() {
+			AfterEach(func() {
+				err := root.Recycle()
+				Expect(err).NotTo(HaveOccurred())
+			})
+			Context("Load Balancer", func() {
+				var (
+					pods         []string
+					labels       map[string]string
+					servicePorts []core.ServicePort
+				)
+
+				BeforeEach(func() {
+					pods = []string{"test-pod-1", "test-pod-2"}
+					ports := []core.ContainerPort{
+						{
+							Name:          "http-1",
+							ContainerPort: 8080,
+						},
+					}
+					servicePorts = []core.ServicePort{
+						{
+							Name:       "http-1",
+							Port:       80,
+							TargetPort: intstr.FromInt(80),
+							Protocol:   "TCP",
+						},
+						{
+							Name:       "https-1",
+							Port:       443,
+							TargetPort: intstr.FromInt(80),
+							Protocol:   "TCP",
+						},
+					}
+					labels = map[string]string{
+						"app": "test-loadbalancer-change-type",
+					}
+
+					By("Creating Pods")
+					createPodWithLabel(pods, ports, framework.TestServerImage, labels, true)
+
+					By("Creating Service")
+					createServiceWithSelector(labels, servicePorts, false, false)
+				})
+
+				AfterEach(func() {
+					By("Deleting the Pods")
+					deletePods(pods)
+
+					By("Deleting the Service")
+					deleteService()
+				})
+
+				It("Should be deleted", func() {
+					By("Update service from LoadBalancer to ClusterIP")
+					updateServiceWithAnnotations(labels, map[string]string{}, servicePorts, false, false)
+					By("Load Balancer is deleted")
+					Eventually(func() error {
+						_, err := f.GetLB(ctx, clusterName, framework.TestServerResourceName)
+						return err
+					}).ShouldNot(BeNil())
+				})
+			})
+
 		})
 
 	})
