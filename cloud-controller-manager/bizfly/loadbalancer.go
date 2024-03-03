@@ -965,11 +965,7 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 	klog.Infof("Number of batchUpdateNodeList %v", len(batchUpdateNodeList))
 	klog.Infof("batchUpdateNodeList %v", batchUpdateNodeList)
 	klog.Infof("Batch creating members for pool %s when %s", poolID, when)
-	// If members aren't change, do nothing here
-	if len(batchUpdateNodeList) - initialMembers == 0 {
-		return 0, nil
-	}
-	// Only call batchUpdate if number of members are changed
+	// Calling batchUpdate
 	err = client.Member.BatchUpdate(ctx, poolID, &gobizfly.BatchMemberUpdateRequest{
 		Members: batchUpdateNodeList,
 	})
