@@ -51,8 +51,8 @@ var _ = Describe("CCM E2E Tests", func() {
 		Expect(len(workers)).Should(BeNumerically(">=", 2))
 	})
 
-	ensureServiceLoadBalancer := func(isDeleted bool) {
-		watcher, err := f.LoadBalancer.GetServiceWatcher()
+	ensureServiceLoadBalancer := func(namespace string, isDeleted bool) {
+		watcher, err := f.LoadBalancer.GetServiceWatcher(namespace)
 		Expect(err).NotTo(HaveOccurred())
 		Eventually(watcher.ResultChan()).Should(Receive(EnsuredService(isDeleted)))
 	}
@@ -81,23 +81,33 @@ var _ = Describe("CCM E2E Tests", func() {
 	createServiceWithSelector := func(selector map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool, isDelete bool) {
 		Expect(f.LoadBalancer.CreateService(selector, nil, ports, isSessionAffinityClientIP)).NotTo(HaveOccurred())
 		Eventually(f.LoadBalancer.GetServiceEndpoints).Should(Not(BeEmpty()))
-		ensureServiceLoadBalancer(isDelete)
+		ensureServiceLoadBalancer("", isDelete)
 	}
 
 	createServiceWithAnnotations := func(labels, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool, isDelete bool) {
 		Expect(f.LoadBalancer.CreateService(labels, annotations, ports, isSessionAffinityClientIP)).NotTo(HaveOccurred())
 		Eventually(f.LoadBalancer.GetServiceEndpoints).Should(Not(BeEmpty()))
-		ensureServiceLoadBalancer(isDelete)
+		ensureServiceLoadBalancer("", isDelete)
 	}
 
 	updateServiceWithAnnotations := func(labels, annotations map[string]string, ports []core.ServicePort, isSessionAffinityClientIP bool, isLB bool) {
 		Expect(f.LoadBalancer.UpdateService(labels, annotations, ports, isSessionAffinityClientIP, isLB)).NotTo(HaveOccurred())
 		Eventually(f.LoadBalancer.GetServiceEndpoints).Should(Not(BeEmpty()))
 		if isLB {
-			ensureServiceLoadBalancer(false)
+			ensureServiceLoadBalancer("", false)
 		} else {
-			ensureServiceLoadBalancer(true)
+			ensureServiceLoadBalancer("", true)
 		}
+	}
+
+	deployIngressController := func(namespace string) {
+		Expect(f.LoadBalancer.DeployIngressController()).NotTo(HaveOccurred())
+		ensureServiceLoadBalancer(namespace, false)
+	}
+
+	destroyIngressController := func(namespace string) {
+		Expect(f.LoadBalancer.UninstallIngressController()).NotTo(HaveOccurred())
+		ensureServiceLoadBalancer(namespace, true)
 	}
 
 	Describe("Test", func() {
@@ -460,6 +470,34 @@ var _ = Describe("CCM E2E Tests", func() {
 					By("Checking numbers of Members")
 					Eventually(members).Should(Equal(2))
 					By("Checking Pool Protocol")
+				})
+			})
+
+			Context("Load Balancer with ingress hostname", func() {
+				var (
+					namespace = "ingress-nginx"
+				)
+
+				BeforeEach(func() {
+					namespace = "ingress-nginx"
+					By("Deploying Nginx ingress controller")
+					deployIngressController(namespace)
+				})
+
+				AfterEach(func() {
+					By("Destroying Nginx ingress controller")
+					destroyIngressController(namespace)
+				})
+
+				It("Should have external IP as a hostname", func() {
+					var hostname []string
+					By("Getting hostname")
+					Eventually(func() error {
+						hostname, err = f.LoadBalancer.GetLoadBalancerHostName(namespace, "ingress-nginx-controller")
+						return err
+					}).Should(BeNil())
+					By("Checking for .nip.io domain")
+					Eventually(hostname[0]).Should(ContainSubstring(".nip.io"))
 				})
 			})
 		})

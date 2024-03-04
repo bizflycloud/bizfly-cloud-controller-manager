@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	scriptDirectory = "scripts"
+	scriptDirectory = "test/scripts"
 	RetryInterval   = 5 * time.Second
 	RetryTimeout    = 15 * time.Minute
 )

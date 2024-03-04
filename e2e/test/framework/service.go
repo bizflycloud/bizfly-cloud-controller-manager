@@ -77,9 +77,15 @@ func (i *lbInvocation) GetServiceEndpoints() ([]core.EndpointAddress, error) {
 	return ep.Subsets[0].Addresses, err
 }
 
-func (i *lbInvocation) GetServiceWatcher() (watch.Interface, error) {
+func (i *lbInvocation) GetServiceWatcher(namespace string) (watch.Interface, error) {
 	var timeoutSeconds int64 = 300
-	watcher, err := i.kubeClient.CoreV1().Events(i.Namespace()).Watch(context.TODO(), metav1.ListOptions{
+	var watchOn string
+	if namespace == "" {
+		watchOn = i.Namespace()
+	} else {
+		watchOn = namespace
+	}
+	watcher, err := i.kubeClient.CoreV1().Events(watchOn).Watch(context.TODO(), metav1.ListOptions{
 		FieldSelector:  "involvedObject.kind=Service",
 		Watch:          true,
 		TimeoutSeconds: &timeoutSeconds,
@@ -125,4 +131,27 @@ func (i *lbInvocation) UpdateService(selector, annotations map[string]string, po
 
 func (i *lbInvocation) deleteEvents() error {
 	return i.kubeClient.CoreV1().Events(i.Namespace()).DeleteCollection(context.TODO(), metav1.DeleteOptions{}, metav1.ListOptions{FieldSelector: "involvedObject.kind=Service"})
+}
+
+func (i *lbInvocation) DeployIngressController() error {
+	return RunScript("install_ingress.sh")
+}
+
+func (i *lbInvocation) UninstallIngressController() error {
+	return RunScript("uninstall_ingress.sh")
+}
+
+func (i *lbInvocation) GetLoadBalancerHostName(namespace string, resourceName string) ([]string, error) {
+	svc, err := i.kubeClient.CoreV1().Services(namespace).Get(context.TODO(), resourceName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+	var serverAddr []string
+	for _, ingress := range svc.Status.LoadBalancer.Ingress {
+		serverAddr = append(serverAddr, ingress.Hostname)
+	}
+	if serverAddr == nil {
+		return nil, fmt.Errorf("failed to get Status.LoadBalancer.Ingress for service %s/%s", TestServerResourceName, i.Namespace())
+	}
+	return serverAddr, nil
 }
