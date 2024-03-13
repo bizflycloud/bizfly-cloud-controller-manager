@@ -1,13 +1,12 @@
 #!/bin/bash
 
-# CLUSTER_NAME="test01"
-# VERSION="653b2e72aab4b44bb545b11d"
-# VPC="cfccc675-dc00-49f3-9fe0-0505680e421d"
-# APP_CRED_ID="345c1299855d4426b250e192108cf1be"
-# APP_CRED_SECRET="S94ekWiPEbdkEFKm8B4kUzvWLNrF3nOwpAE21iCVNVXsRqczuCM8azanptI91zpVBLPZEqVSDYuo8gXMUiWgPQ"
+# Function to generate a random string of 5 characters
+generate_random_string() {
+	openssl rand -base64 5 | tr -dc 'a-zA-Z0-9' | head -c 5
+}
 
 # Default values
-CLUSTER_NAME=""
+CLUSTER_NAME="test-ccm-$(generate_random_string)"
 VERSION=""
 VPC=""
 APP_CRED_ID=""
@@ -15,21 +14,17 @@ APP_CRED_SECRET=""
 EMAIL=""
 PASSWORD=""
 IMAGE=""
-SECRET=""
+TOKEN=""
 
 # Function to display usage information
 usage() {
-	echo "Usage: $0 [-n|--name <name>] [-v|--version <version>] [-P|--vcp <vpc>] [-u|--app-cred-id <application credential id>] [-p|--app-cred-secret <application credential secret>] [--email <email>] [--password <password>] [--image <ccm-new-image-hash>] [--token <secret-token>]"
+	echo "Usage: $0 [-v|--version <version>] [-P|--vcp <vpc>] [-u|--app-cred-id <application credential id>] [-p|--app-cred-secret <application credential secret>] [--email <email>] [--password <password>] [--image <ccm-new-image-hash>] [--token <secret-token>]"
 	exit 1
 }
 
 # Parse command line options
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-	-n | --name)
-		CLUSTER_NAME="$2"
-		shift 2
-		;;
 	-v | --version)
 		VERSION="$2"
 		shift 2
@@ -70,7 +65,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Check if all options are provided
-if [[ -z $CLUSTER_NAME || -z $VERSION || -z $VPC || -z $APP_CRED_ID || -z $APP_CRED_SECRET || -z $EMAIL || -z $PASSWORD || -z $IMAGE || -z $TOKEN ]]; then
+if [[ -z $VERSION || -z $VPC || -z $APP_CRED_ID || -z $APP_CRED_SECRET || -z $EMAIL || -z $PASSWORD || -z $IMAGE || -z $TOKEN ]]; then
 	echo "Missing required options"
 	usage
 fi
@@ -144,7 +139,7 @@ else
 
 	# Patch new ccm image
 	curl --location "https://manage.bizflycloud.vn/api/kubernetes-engine/ccm/${CLUSTER_UID}" \
-		--header "Authorization: ${TOKEN_SECRET}" \
+		--header "Authorization: ${TOKEN}" \
 		--header 'Content-Type: application/json' \
 		--data "{\"ccm_image\": \"$IMAGE\"}"
 
