@@ -5,5 +5,5 @@ func CreateCluster(cluster, region, k8s_version string) error {
 }
 
 func DeleteCluster(clusterName string) error {
-	return RunScript("delete_cluster.sh", clusterName)
+	return RunScript("delete_cluster.sh", "-n", clusterName)
 }

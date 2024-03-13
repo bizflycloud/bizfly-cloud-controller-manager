@@ -5,12 +5,13 @@ import (
 	"e2e_test/test/framework"
 	"flag"
 	"fmt"
-	"github.com/bizflycloud/gobizfly"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/bizflycloud/gobizfly"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -65,8 +66,8 @@ func GetApiClient() (*gobizfly.Client, error) {
 		&gobizfly.TokenCreateRequest{
 			AuthMethod:    authMethod,
 			AppCredID:     appCredId,
-			AppCredSecret: appCredSecret})
-
+			AppCredSecret: appCredSecret,
+		})
 	if err != nil {
 		return nil, fmt.Errorf("Cannot create token: %w", err)
 	}
