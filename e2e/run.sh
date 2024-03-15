@@ -98,7 +98,7 @@ else
 	CLUSTER_UID=$(
 		bizfly kubernetes create --name $CLUSTER_NAME --version $VERSION --vpc-network-id $VPC \
 			--worker-pool "name=worker-1;flavor=nix.2c_2g;profile_type=premium;volume_type=PREMIUM-HDD1;volume_size=40;availability_zone=HN1;desired_size=1;min_size=1;max_size=1;labels=env=staging" \
-			--worker-pool "name=worker-2;flavor=nix.2c_2g;profile_type=premium;volume_type=PREMIUM-HDD1;volume_size=40;availability_zone=HN1;desired_size=1;min_size=1;max_size=1;labels=env=prodction" |
+			--worker-pool "name=worker-2;flavor=nix.2c_2g;profile_type=premium;volume_type=PREMIUM-HDD1;volume_size=40;availability_zone=HN1;desired_size=1;min_size=1;max_size=1;labels=env=production" |
 			grep $CLUSTER_NAME | awk '{print $1}'
 	)
 	echo "Creating cluster $CLUSTER_UID..."
@@ -126,7 +126,7 @@ else
 		# Check if the elapsed time has exceeded the timeout duration
 		if [ $elapsed_time -ge $timeout_duration ]; then
 			echo "Timeout exceeded. Exiting loop."
-			break
+			exit 1
 		fi
 
 		# If status is not yet "PROVISIONED" and timeout has not occurred, wait for some time before checking again
@@ -173,4 +173,3 @@ ginkgo -v --json-report=report.json -- \
 	--use-existing=false \
 	--app-cred-secret="$APP_CRED_SECRET" \
 	--cluster-uid="$CLUSTER_UID"
-
