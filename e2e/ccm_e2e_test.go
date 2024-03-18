@@ -3,6 +3,7 @@ package e2e_test
 import (
 	"e2e_test/test/framework"
 	"fmt"
+
 	"github.com/bizflycloud/gobizfly"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -105,9 +106,8 @@ var _ = Describe("CCM E2E Tests", func() {
 		ensureServiceLoadBalancer(namespace, false)
 	}
 
-	destroyIngressController := func(namespace string) {
+	destroyIngressController := func() {
 		Expect(f.LoadBalancer.UninstallIngressController()).NotTo(HaveOccurred())
-		ensureServiceLoadBalancer(namespace, true)
 	}
 
 	Describe("Test", func() {
@@ -474,9 +474,7 @@ var _ = Describe("CCM E2E Tests", func() {
 			})
 
 			Context("Load Balancer with ingress hostname", func() {
-				var (
-					namespace = "ingress-nginx"
-				)
+				namespace := "ingress-nginx"
 
 				BeforeEach(func() {
 					namespace = "ingress-nginx"
@@ -486,7 +484,7 @@ var _ = Describe("CCM E2E Tests", func() {
 
 				AfterEach(func() {
 					By("Destroying Nginx ingress controller")
-					destroyIngressController(namespace)
+					destroyIngressController()
 				})
 
 				It("Should have external IP as a hostname", func() {
@@ -751,8 +749,6 @@ var _ = Describe("CCM E2E Tests", func() {
 					}).ShouldNot(BeNil())
 				})
 			})
-
 		})
-
 	})
 })
