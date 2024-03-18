@@ -1,0 +1,12 @@
+---
+controller:
+  ingressClassResource:
+    name: external-nginx
+  admissionWebhooks:
+    enabled: false
+  extraArgs:
+    ingress-class: external-nginx
+  service:
+    annotations:
+      kubernetes.bizflycloud.vn/enable-ingress-hostname: "true"
+      kubernetes.bizflycloud.vn/enable-proxy-protocol: "true"
