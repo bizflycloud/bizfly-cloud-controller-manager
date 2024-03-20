@@ -175,9 +175,9 @@ func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID str
 	if errors.Is(err, gobizfly.ErrNotFound) {
 		return false, nil
 	}
-  if err != nil {
-    return false, err
-  }
+	if err != nil {
+		return false, err
+	}
 	if server != nil || node != nil {
 		return true, nil
 	} else {
@@ -243,8 +243,8 @@ func serverByID(
 	if err != nil {
 		serverError := err
 		node, err := client.KubernetesEngine.GetEverywhere(ctx, id)
-    if err != nil {
-      klog.V(5).Infof("error fetching node: %v, and cloud server: %v", serverError, err)
+		if err != nil {
+			klog.V(5).Infof("error fetching node: %v, and cloud server: %v", serverError, err)
 			return nil, nil, err
 		}
 		return nil, node, nil
