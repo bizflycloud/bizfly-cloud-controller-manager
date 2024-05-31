@@ -242,13 +242,19 @@ func serverByID(
 	server, err := client.Server.Get(ctx, id)
 	if err != nil {
 		serverError := err
-		node, err := client.KubernetesEngine.GetEverywhere(ctx, id)
-		if err != nil {
-			klog.V(5).Infof("error fetching node: %v, and cloud server: %v", serverError, err)
-			return nil, nil, err
+		if errors.Is(err, gobizfly.ErrNotFound) {
+			node, err := client.KubernetesEngine.GetEverywhere(ctx, id)
+			if err != nil {
+				klog.V(5).Infof("error fetching node: %v, and cloud server: %v", serverError, err)
+				return nil, nil, err
+			}
+
+			return nil, node, nil
 		}
-		return nil, node, nil
+
+		return nil, nil, serverError
 	}
+
 	return server, nil, nil
 }
 
