@@ -851,7 +851,7 @@ func filterTargetNodes(apiService *v1.Service, nodes []*v1.Node) []*v1.Node {
 			allFiltersMatch := true
 
 			for targetLabelKey, targetLabelValue := range targetNodeLabels {
-				if nodeLabelValue, ok := node.Labels[targetLabelKey]; !ok || (nodeLabelValue != targetLabelValue && targetLabelValue != "") {
+				if nodeLabelValue, ok := node.Labels[targetLabelKey]; !ok || (strings.EqualFold(nodeLabelValue, targetLabelValue) && targetLabelValue != "") {
 					allFiltersMatch = false
 					break
 				}
