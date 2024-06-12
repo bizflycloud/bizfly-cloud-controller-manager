@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/bizflycloud/gobizfly"
 )
 
@@ -17,11 +18,14 @@ func (f *Framework) GetBizflyClient() gobizfly.Client {
 
 func (f *Framework) GetLBByName(ctx context.Context, clusterName string, serviceName string) (string, error) {
 	name := cutString(fmt.Sprintf("kube_service_%s_%s_%s", clusterName, f.Namespace(), serviceName))
+	fmt.Println(name)
 	loadbalancers, err := f.GetBizflyClient().LoadBalancer.List(ctx, &gobizfly.ListOptions{})
 	if err != nil {
+		fmt.Println(err)
 		return "", err
 	}
 	for _, lb := range loadbalancers {
+		fmt.Println(lb)
 		if lb.Name == name {
 			return lb.ID, nil
 		}
@@ -31,11 +35,14 @@ func (f *Framework) GetLBByName(ctx context.Context, clusterName string, service
 
 func (f *Framework) GetLB(ctx context.Context, clusterName string, serviceName string) (*gobizfly.LoadBalancer, error) {
 	name := cutString(fmt.Sprintf("kube_service_%s_%s_%s", clusterName, f.Namespace(), serviceName))
+	fmt.Println(name)
 	loadbalancers, err := f.GetBizflyClient().LoadBalancer.List(ctx, &gobizfly.ListOptions{})
 	if err != nil {
+		fmt.Println(err)
 		return nil, err
 	}
 	for _, lb := range loadbalancers {
+		fmt.Println(lb)
 		if lb.Name == name {
 			return lb, nil
 		}
