@@ -486,7 +486,7 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 		updatedMembers, err := batchUpdateMembers(ctx, l.gclient, pool.ID, lb.ID, nodesList, &port, portIndex, name, "updating loadbalancer")
 		if err != nil {
 			if !errors.Is(err, ErrNoBatchUpdate) {
-				return nil
+				return err
 			}
 		}
 		klog.Infof("number of members after batchUpdate for port %v: %v", port.Port, updatedMembers)
