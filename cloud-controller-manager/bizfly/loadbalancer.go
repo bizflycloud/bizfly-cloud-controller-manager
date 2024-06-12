@@ -82,6 +82,8 @@ var ErrMultipleResults = errors.New("multiple results where only one expected")
 // ErrNoAddressFound is used when we cannot find an ip address for the host
 var ErrNoAddressFound = errors.New("no address found for host")
 
+var ErrNoBatchUpdate = errors.New("no batchUpdate found for batch")
+
 type loadbalancers struct {
 	gclient *gobizfly.Client
 }
@@ -295,7 +297,9 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		when := "ensuring loadbalancer"
 		updatedMembers, err := batchUpdateMembers(ctx, l.gclient, pool.ID, loadbalancer.ID, nodesList, &port, portIndex, name, when)
 		if err != nil {
-			return nil, err
+			if !errors.Is(err, ErrNoBatchUpdate) {
+				return nil, err
+			}
 		}
 		klog.Infof("number of members after batchUpdate for port %v: %v", port.Port, updatedMembers)
 
@@ -350,7 +354,9 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			when := "delete remaining obsolete listener"
 			_, err := batchUpdateMembers(ctx, l.gclient, pool.ID, loadbalancer.ID, nodesList, &port, portIndex, name, when)
 			if err != nil {
-				return nil, err
+				if !errors.Is(err, ErrNoBatchUpdate) {
+					return nil, err
+				}
 			}
 			klog.Infof("Deleting obsolete pool %s for listener %s", pool.ID, listener.ID)
 			// delete pool
@@ -479,7 +485,9 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 
 		updatedMembers, err := batchUpdateMembers(ctx, l.gclient, pool.ID, lb.ID, nodesList, &port, portIndex, name, "updating loadbalancer")
 		if err != nil {
-			return err
+			if !errors.Is(err, ErrNoBatchUpdate) {
+				return err
+			}
 		}
 		klog.Infof("number of members after batchUpdate for port %v: %v", port.Port, updatedMembers)
 	}
@@ -843,7 +851,7 @@ func filterTargetNodes(apiService *v1.Service, nodes []*v1.Node) []*v1.Node {
 			allFiltersMatch := true
 
 			for targetLabelKey, targetLabelValue := range targetNodeLabels {
-				if nodeLabelValue, ok := node.Labels[targetLabelKey]; !ok || (nodeLabelValue != targetLabelValue && targetLabelValue != "") {
+				if nodeLabelValue, ok := node.Labels[targetLabelKey]; !ok || (strings.EqualFold(nodeLabelValue, targetLabelValue) && targetLabelValue != "") {
 					allFiltersMatch = false
 					break
 				}
@@ -962,24 +970,30 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 		}
 	}
 
-	klog.Infof("Number of batchUpdateNodeList %v", len(batchUpdateNodeList))
-	klog.Infof("batchUpdateNodeList %v", batchUpdateNodeList)
-	klog.Infof("Batch creating members for pool %s when %s", poolID, when)
-	// Calling batchUpdate
-	err = client.Member.BatchUpdate(ctx, poolID, &gobizfly.BatchMemberUpdateRequest{
-		Members: batchUpdateNodeList,
-	})
-	if err != nil {
-		klog.Infof("error batch update LB pool members %s", err)
-		return 0, fmt.Errorf("error batch update LB pool members %s", err)
+	// ensure have batchUpdate when excute update
+	if len(batchUpdateNodeList) > 0 {
+		klog.Infof("Number of batchUpdateNodeList %v", len(batchUpdateNodeList))
+		klog.Infof("batchUpdateNodeList %v", batchUpdateNodeList)
+		klog.Infof("Batch creating members for pool %s when %s", poolID, when)
+		// Calling batchUpdate
+		err = client.Member.BatchUpdate(ctx, poolID, &gobizfly.BatchMemberUpdateRequest{
+			Members: batchUpdateNodeList,
+		})
+		if err != nil {
+			klog.Infof("error batch update LB pool members %s", err)
+			return 0, fmt.Errorf("error batch update LB pool members %s", err)
+		}
+
+		provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, client, lbID)
+		if err != nil {
+			klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
+			return 0, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
+		}
+
+		return len(batchUpdateNodeList) - initialMembers, nil
 	}
 
-	provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, client, lbID)
-	if err != nil {
-		klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
-		return 0, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
-	}
-	return len(batchUpdateNodeList) - initialMembers, nil
+	return 0, ErrNoBatchUpdate
 }
 
 func (l *loadbalancers) changePoolProtocol(ctx context.Context, lbName string, useProxyProtocol bool, listener *gobizfly.Listener, portIndex int, port v1.ServicePort, lbID string, persistence *gobizfly.SessionPersistence, nodes []*v1.Node, oldPool *gobizfly.Pool) error {
@@ -999,7 +1013,9 @@ func (l *loadbalancers) changePoolProtocol(ctx context.Context, lbName string, u
 	when := "change protocol in ensuring loadbalancer"
 	_, err = batchUpdateMembers(ctx, l.gclient, new_pool.ID, lbID, nodes, &port, portIndex, lbName, when)
 	if err != nil {
-		return err
+		if !errors.Is(err, ErrNoBatchUpdate) {
+			return err
+		}
 	}
 
 	// update listener
