@@ -57,7 +57,7 @@ func (z *zones) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 			Region:        everywhere_node.Region}, nil
 	}
 
-	s, err := z.gclient.Server.Get(ctx, id)
+	s, err := z.gclient.CloudServer.Get(ctx, id)
 	if err != nil {
 		return cloudprovider.Zone{}, err
 	}

@@ -53,6 +53,7 @@ func main() {
 		opts,
 		bizflyInitializer,
 		app.DefaultInitFuncConstructors,
+		map[string]string{},
 		flag.NamedFlagSets{},
 		wait.NeverStop,
 	)
