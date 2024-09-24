@@ -311,7 +311,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			//	monitorProtocol = "UDP-CONNECT"
 			//}
 			//TODO use http monitor
-			monitor, err := l.gclient.HealthMonitor.Create(ctx, pool.ID, &gobizfly.HealthMonitorCreateRequest{
+			monitor, err := l.gclient.CloudLoadBalancer.HealthMonitors().Create(ctx, pool.ID, &gobizfly.CloudLoadBalancerHealthMonitorCreateRequest{
 				Name:           cutString(fmt.Sprintf("monitor_%d_%s)", portIndex, name)),
 				Type:           "TCP",
 				Delay:          3,
@@ -342,7 +342,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			monitorID := pool.HealthMonitorID
 			if monitorID != "" {
 				klog.Infof("Deleting health monitor %s for pool %s", monitorID, pool.ID)
-				err := l.gclient.HealthMonitor.Delete(ctx, monitorID)
+				err := l.gclient.CloudLoadBalancer.HealthMonitors().Delete(ctx, monitorID)
 				if err != nil {
 					return nil, fmt.Errorf("Error deleteing LB Pool healthmonitor %v", err)
 				}
@@ -360,7 +360,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			}
 			klog.Infof("Deleting obsolete pool %s for listener %s", pool.ID, listener.ID)
 			// delete pool
-			err = l.gclient.Pool.Delete(ctx, pool.ID)
+			err = l.gclient.CloudLoadBalancer.Pools().Delete(ctx, pool.ID)
 			if err != nil && !cpoerrors.IsNotFound(err) {
 				klog.Errorf("error deleting obsolete pool %s for listener %s: %v", pool.ID, listener.ID, err)
 				return nil, fmt.Errorf("error deleting obsolete pool %s for listener %s: %v", pool.ID, listener.ID, err)
@@ -372,7 +372,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			}
 		}
 		// delete listener
-		err = l.gclient.Listener.Delete(ctx, listener.ID)
+		err = l.gclient.CloudLoadBalancer.Listeners().Delete(ctx, listener.ID)
 		if err != nil && !cpoerrors.IsNotFound(err) {
 			return nil, fmt.Errorf("error deleteting obsolete listener: %v", err)
 		}
@@ -431,7 +431,7 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 		Port     int
 	}
 	var listenerIDs []string
-	lbListeners := make(map[portKey]*gobizfly.Listener)
+	lbListeners := make(map[portKey]*gobizfly.CloudLoadBalancerListener)
 	listeners, err := getListenersByLoadBalancerID(ctx, l.gclient, lb.ID)
 	if err != nil {
 		klog.Errorf("error getting listeners for LB %s: %s", lb.ID, err)
@@ -445,7 +445,7 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 	}
 
 	// Get all pools for this loadbalancer, by listener ID.
-	lbPools := make(map[string]*gobizfly.Pool)
+	lbPools := make(map[string]*gobizfly.CloudLoadBalancerPool)
 	for _, listenerID := range listenerIDs {
 		pool, err := getPoolByListenerID(ctx, l.gclient, lb.ID, listenerID)
 		if err != nil {
@@ -511,7 +511,7 @@ func (l *loadbalancers) EnsureLoadBalancerDeleted(ctx context.Context, clusterNa
 	if err != nil {
 		return err
 	}
-	err = l.gclient.LoadBalancer.Delete(ctx, &gobizfly.LoadBalancerDeleteRequest{
+	err = l.gclient.CloudLoadBalancer.Delete(ctx, &gobizfly.LoadBalancerDeleteRequest{
 		Cascade: true,
 		ID:      lb.ID})
 	if err != nil {
@@ -526,7 +526,7 @@ func (l *loadbalancers) EnsureLoadBalancerDeleted(ctx context.Context, clusterNa
 }
 
 func getLBByName(ctx context.Context, client *gobizfly.Client, name string) (*gobizfly.LoadBalancer, error) {
-	loadbalancers, err := client.LoadBalancer.List(ctx, &gobizfly.ListOptions{})
+	loadbalancers, err := client.CloudLoadBalancer.List(ctx, &gobizfly.ListOptions{})
 	if err != nil {
 		klog.Infof("Cannot get loadbalancers in your account: %v", err)
 		return nil, err
@@ -548,7 +548,7 @@ func waitLoadbalancerActiveProvisioningStatus(ctx context.Context, client *gobiz
 	}
 	var provisioningStatus string
 	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
-		lb, err := client.LoadBalancer.Get(ctx, loadbalancerID)
+		lb, err := client.CloudLoadBalancer.Get(ctx, loadbalancerID)
 		if err != nil {
 			klog.Infof("Cannot get status of loadbalancer %s", loadbalancerID)
 			return false, err
@@ -577,7 +577,7 @@ func waitLoadbalancerDeleted(ctx context.Context, client *gobizfly.Client, loadb
 		Steps:    loadbalancerDeleteSteps,
 	}
 	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
-		_, err := client.LoadBalancer.Get(ctx, loadbalancerID)
+		_, err := client.CloudLoadBalancer.Get(ctx, loadbalancerID)
 		if err != nil {
 			if cpoerrors.IsNotFound(err) {
 				return true, nil
@@ -625,7 +625,7 @@ func (l *loadbalancers) createLoadBalancer(ctx context.Context, name string, net
 	vpcNetworkId := ""
 	if networkType == INTERNAL_NETWORK_TYPE {
 		// find vpc network id by name
-		vpcs, err := l.gclient.VPC.List(ctx)
+		vpcs, err := l.gclient.CloudServer.VPCNetworks().List(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -642,24 +642,24 @@ func (l *loadbalancers) createLoadBalancer(ctx context.Context, name string, net
 		Type:         lbType,
 		VPCNetworkID: vpcNetworkId,
 	}
-	loadbalancer, err := l.gclient.LoadBalancer.Create(ctx, &lcr)
+	loadbalancer, err := l.gclient.CloudLoadBalancer.Create(ctx, &lcr)
 	if err != nil {
 		return nil, err
 	}
 	return loadbalancer, nil
 }
 
-func (l *loadbalancers) createListener(ctx context.Context, portIndex int, port int, protocol, lbName, lbID string) (*gobizfly.Listener, error) {
+func (l *loadbalancers) createListener(ctx context.Context, portIndex int, port int, protocol, lbName, lbID string) (*gobizfly.CloudLoadBalancerListener, error) {
 	// listenerProtocol := string(port.Protocol)
 	listenerName := cutString(fmt.Sprintf("listener_%d_%s", portIndex, lbName))
-	lcr := gobizfly.ListenerCreateRequest{
+	lcr := gobizfly.CloudLoadBalancerListenerCreateRequest{
 		Name:         &listenerName,
 		Protocol:     protocol,
 		ProtocolPort: port,
 	}
 
 	klog.Infof("Creating listener for port %d using protocol: %s", port, protocol)
-	listener, err := l.gclient.Listener.Create(ctx, lbID, &lcr)
+	listener, err := l.gclient.CloudLoadBalancer.Listeners().Create(ctx, lbID, &lcr)
 	if err != nil {
 		klog.Errorf("failed to create listener for loadbalancer %s: %v", lbID, err)
 		return nil, fmt.Errorf("failed to create listener for loadbalancer %s: %v", lbID, err)
@@ -670,13 +670,13 @@ func (l *loadbalancers) createListener(ctx context.Context, portIndex int, port 
 	return listener, nil
 }
 
-func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gobizfly.Listener, portIndex int, lbID, lbName string, sessionPersistence *gobizfly.SessionPersistence, useProxyProtocol bool, isdefault bool) (*gobizfly.Pool, error) {
+func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gobizfly.CloudLoadBalancerListener, portIndex int, lbID, lbName string, sessionPersistence *gobizfly.SessionPersistence, useProxyProtocol bool, isdefault bool) (*gobizfly.CloudLoadBalancerPool, error) {
 	poolProtocol := string(listener.Protocol)
 	if useProxyProtocol {
 		poolProtocol = PROXY_PROTOCOL
 	}
 	poolName := cutString(fmt.Sprintf("pool_%d_%s", portIndex, lbName))
-	pcr := gobizfly.PoolCreateRequest{
+	pcr := gobizfly.CloudLoadBalancerPoolCreateRequest{
 		Name:               &poolName,
 		Protocol:           poolProtocol,
 		LBAlgorithm:        ROUND_ROBIN, // TODO use annotation for algorithm
@@ -691,7 +691,7 @@ func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gob
 
 	klog.Infof("listener %v", pcr)
 	klog.Infof("Creating pool for listener %s using protocol %s", listener.ID, poolProtocol)
-	pool, err := l.gclient.Pool.Create(ctx, lbID, &pcr)
+	pool, err := l.gclient.CloudLoadBalancer.Pools().Create(ctx, lbID, &pcr)
 	if err != nil {
 		klog.Errorf("error creating pool for listener %s: %v", listener.ID, err)
 		return nil, fmt.Errorf("error creating pool for listener %s: %v", listener.ID, err)
@@ -699,8 +699,8 @@ func (l *loadbalancers) createPoolForListener(ctx context.Context, listener *gob
 	return pool, nil
 }
 
-func getListenersByLoadBalancerID(ctx context.Context, client *gobizfly.Client, loadbalancerID string) ([]*gobizfly.Listener, error) {
-	listeners, err := client.Listener.List(ctx, loadbalancerID, &gobizfly.ListOptions{})
+func getListenersByLoadBalancerID(ctx context.Context, client *gobizfly.Client, loadbalancerID string) ([]*gobizfly.CloudLoadBalancerListener, error) {
+	listeners, err := client.CloudLoadBalancer.Listeners().List(ctx, loadbalancerID, &gobizfly.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -708,7 +708,7 @@ func getListenersByLoadBalancerID(ctx context.Context, client *gobizfly.Client, 
 }
 
 // get listener for a port or nil if does not exist
-func getListenerForPort(existingListeners []*gobizfly.Listener, port v1.ServicePort) (*gobizfly.Listener, error) {
+func getListenerForPort(existingListeners []*gobizfly.CloudLoadBalancerListener, port v1.ServicePort) (*gobizfly.CloudLoadBalancerListener, error) {
 	for _, l := range existingListeners {
 		if l.Protocol == toListenersProtocol(port.Protocol) && l.ProtocolPort == int(port.Port) {
 			return l, nil
@@ -727,7 +727,7 @@ func toListenersProtocol(protocol v1.Protocol) string {
 }
 
 // Check if a member exists for node
-func memberExists(members []*gobizfly.Member, addr string, port int) bool {
+func memberExists(members []*gobizfly.CloudLoadBalancerMember, addr string, port int) bool {
 	for _, member := range members {
 		if member.Address == addr && member.ProtocolPort == port {
 			return true
@@ -736,7 +736,7 @@ func memberExists(members []*gobizfly.Member, addr string, port int) bool {
 	return false
 }
 
-func popListener(existingListeners []*gobizfly.Listener, id string) []*gobizfly.Listener {
+func popListener(existingListeners []*gobizfly.CloudLoadBalancerListener, id string) []*gobizfly.CloudLoadBalancerListener {
 	for i, existingListener := range existingListeners {
 		if existingListener.ID == id {
 			existingListeners[i] = existingListeners[len(existingListeners)-1]
@@ -748,7 +748,7 @@ func popListener(existingListeners []*gobizfly.Listener, id string) []*gobizfly.
 	return existingListeners
 }
 
-func popMember(members []*gobizfly.Member, addr string, port int) []*gobizfly.Member {
+func popMember(members []*gobizfly.CloudLoadBalancerMember, addr string, port int) []*gobizfly.CloudLoadBalancerMember {
 	for i, member := range members {
 		if member.Address == addr && member.ProtocolPort == port {
 			members[i] = members[len(members)-1]
@@ -760,9 +760,9 @@ func popMember(members []*gobizfly.Member, addr string, port int) []*gobizfly.Me
 }
 
 // Get pool for a listener. A listener always has exactly one pool.
-func getPoolByListenerID(ctx context.Context, client *gobizfly.Client, loadbalancerID string, listenerID string) (*gobizfly.Pool, error) {
-	listenerPools := make([]*gobizfly.Pool, 0, 1)
-	loadbalancerPools, err := client.Pool.List(ctx, loadbalancerID, &gobizfly.ListOptions{})
+func getPoolByListenerID(ctx context.Context, client *gobizfly.Client, loadbalancerID string, listenerID string) (*gobizfly.CloudLoadBalancerPool, error) {
+	listenerPools := make([]*gobizfly.CloudLoadBalancerPool, 0, 1)
+	loadbalancerPools, err := client.CloudLoadBalancer.Pools().List(ctx, loadbalancerID, &gobizfly.ListOptions{})
 
 	if err != nil {
 		return nil, err
@@ -787,8 +787,8 @@ func getPoolByListenerID(ctx context.Context, client *gobizfly.Client, loadbalan
 	return listenerPools[0], nil
 }
 
-func getMembersByPoolID(ctx context.Context, client *gobizfly.Client, poolID string) ([]*gobizfly.Member, error) {
-	members, err := client.Member.List(ctx, poolID, &gobizfly.ListOptions{})
+func getMembersByPoolID(ctx context.Context, client *gobizfly.Client, poolID string) ([]*gobizfly.CloudLoadBalancerMember, error) {
+	members, err := client.CloudLoadBalancer.Members().List(ctx, poolID, &gobizfly.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -820,7 +820,7 @@ func nodeAddressForLB(node *v1.Node) (string, error) {
 }
 
 func deletePool(ctx context.Context, client *gobizfly.Client, poolID string) error {
-	err := client.Pool.Delete(ctx, poolID)
+	err := client.CloudLoadBalancer.Pools().Delete(ctx, poolID)
 	if err != nil {
 		klog.Errorf("error deleting pool %s: %v", poolID, err)
 		return err
@@ -828,11 +828,11 @@ func deletePool(ctx context.Context, client *gobizfly.Client, poolID string) err
 	return nil
 }
 
-func updateListenerDefaultPool(ctx context.Context, client *gobizfly.Client, poolID string, listenerID string) (*gobizfly.Listener, error) {
-	payload := gobizfly.ListenerUpdateRequest{
+func updateListenerDefaultPool(ctx context.Context, client *gobizfly.Client, poolID string, listenerID string) (*gobizfly.CloudLoadBalancerListener, error) {
+	payload := gobizfly.CloudLoadBalancerListenerUpdateRequest{
 		DefaultPoolID: &poolID,
 	}
-	listener, err := client.Listener.Update(ctx, listenerID, &payload)
+	listener, err := client.CloudLoadBalancer.Listeners().Update(ctx, listenerID, &payload)
 	if err != nil {
 		klog.Errorf("Updating error pool %s: %v", poolID, err)
 		return nil, fmt.Errorf("Updating error pool %s: %v", poolID, err)
@@ -892,7 +892,7 @@ func getKeyValueFromServiceAnnotation(service *v1.Service, annotationKey string)
 }
 
 func memberExistsInCS(ctx context.Context, client *gobizfly.Client, serverID string) bool {
-	server, err := client.Server.Get(ctx, serverID)
+	server, err := client.CloudServer.Get(ctx, serverID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return false
@@ -908,7 +908,7 @@ func memberExistsInCS(ctx context.Context, client *gobizfly.Client, serverID str
 }
 
 func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID string, lbID string, nodes []*v1.Node, port *v1.ServicePort, portIndex int, name string, when string) (int, error) {
-	batchUpdateNodeList := []gobizfly.ExtendMemberUpdateRequest{}
+	batchUpdateNodeList := []gobizfly.CloudLoadBalancerExtendMemberUpdateRequest{}
 	members, err := getMembersByPoolID(ctx, client, poolID)
 	if err != nil {
 		return 0, fmt.Errorf("error getting pool members %s: %s", poolID, err)
@@ -922,13 +922,13 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 			memberExists := memberExistsInCS(ctx, client, member.ID)
 			// If member exists in CS, then append to batchUpdateNodeList to maintaint the existsing members
 			if memberExists {
-				memberName := gobizfly.MemberUpdateRequest{
+				memberName := gobizfly.CloudLoadBalancerMemberUpdateRequest{
 					Name: member.Name,
 				}
-				batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.ExtendMemberUpdateRequest{
-					MemberUpdateRequest: memberName,
-					Address:             member.Address,
-					ProtocolPort:        int(port.NodePort),
+				batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.CloudLoadBalancerExtendMemberUpdateRequest{
+					CloudLoadBalancerMemberUpdateRequest: memberName,
+					Address:                              member.Address,
+					ProtocolPort:                         int(port.NodePort),
 				})
 			}
 		}
@@ -947,22 +947,22 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 				}
 			}
 			if !memberExists(members, addr, int(port.NodePort)) {
-				member := gobizfly.MemberUpdateRequest{
+				member := gobizfly.CloudLoadBalancerMemberUpdateRequest{
 					Name: cutString(fmt.Sprintf("member_%d_%s_%s", portIndex, node.Name, name)),
 				}
-				batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.ExtendMemberUpdateRequest{
-					MemberUpdateRequest: member,
-					Address:             addr,
-					ProtocolPort:        int(port.NodePort),
+				batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.CloudLoadBalancerExtendMemberUpdateRequest{
+					CloudLoadBalancerMemberUpdateRequest: member,
+					Address:                              addr,
+					ProtocolPort:                         int(port.NodePort),
 				})
 			} else {
-				member := gobizfly.MemberUpdateRequest{
+				member := gobizfly.CloudLoadBalancerMemberUpdateRequest{
 					Name: cutString(fmt.Sprintf("member_%d_%s_%s", portIndex, node.Name, name)),
 				}
-				batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.ExtendMemberUpdateRequest{
-					MemberUpdateRequest: member,
-					Address:             addr,
-					ProtocolPort:        int(port.NodePort),
+				batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.CloudLoadBalancerExtendMemberUpdateRequest{
+					CloudLoadBalancerMemberUpdateRequest: member,
+					Address:                              addr,
+					ProtocolPort:                         int(port.NodePort),
 				})
 				// After all members have been processed, remaining members are deleted as obsolete.
 				members = popMember(members, addr, int(port.NodePort))
@@ -976,7 +976,7 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 		klog.Infof("batchUpdateNodeList %v", batchUpdateNodeList)
 		klog.Infof("Batch creating members for pool %s when %s", poolID, when)
 		// Calling batchUpdate
-		err = client.Member.BatchUpdate(ctx, poolID, &gobizfly.BatchMemberUpdateRequest{
+		err = client.CloudLoadBalancer.Members().BatchUpdate(ctx, poolID, &gobizfly.CloudLoadBalancerBatchMemberUpdateRequest{
 			Members: batchUpdateNodeList,
 		})
 		if err != nil {
@@ -996,7 +996,7 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 	return 0, ErrNoBatchUpdate
 }
 
-func (l *loadbalancers) changePoolProtocol(ctx context.Context, lbName string, useProxyProtocol bool, listener *gobizfly.Listener, portIndex int, port v1.ServicePort, lbID string, persistence *gobizfly.SessionPersistence, nodes []*v1.Node, oldPool *gobizfly.Pool) error {
+func (l *loadbalancers) changePoolProtocol(ctx context.Context, lbName string, useProxyProtocol bool, listener *gobizfly.CloudLoadBalancerListener, portIndex int, port v1.ServicePort, lbID string, persistence *gobizfly.SessionPersistence, nodes []*v1.Node, oldPool *gobizfly.CloudLoadBalancerPool) error {
 	//create new pool
 	new_pool, err := l.createPoolForListener(ctx, listener, portIndex, lbID, lbName, persistence, useProxyProtocol, false)
 	klog.Infof("Pool created for listener %s: %s", listener.ID, new_pool.ID)

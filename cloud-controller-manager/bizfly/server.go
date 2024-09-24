@@ -239,7 +239,7 @@ func serverByID(
 	client *gobizfly.Client,
 	id string,
 ) (*gobizfly.Server, *gobizfly.EverywhereNode, error) {
-	server, err := client.Server.Get(ctx, id)
+	server, err := client.CloudServer.Get(ctx, id)
 	if err != nil {
 		serverError := err
 		if errors.Is(err, gobizfly.ErrNotFound) {
@@ -260,7 +260,7 @@ func serverByID(
 
 func serverByName(ctx context.Context, client *gobizfly.Client, name types.NodeName) (*gobizfly.Server, error) {
 	klog.V(5).Infof("Looking for server name: %s", string(name))
-	servers, err := client.Server.List(ctx, &gobizfly.ServerListOptions{})
+	servers, err := client.CloudServer.List(ctx, &gobizfly.ServerListOptions{})
 	if err != nil {
 		return nil, err
 	}
