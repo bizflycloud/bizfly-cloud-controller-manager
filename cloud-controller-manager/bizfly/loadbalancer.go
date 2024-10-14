@@ -295,7 +295,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 
 		nodesList := filterTargetNodes(apiService, nodes)
 		when := "ensuring loadbalancer"
-		updatedMembers, err := batchUpdateMembers(ctx, l.gclient, pool.ID, loadbalancer.ID, nodesList, &port, portIndex, name, when)
+		updatedMembers, err := batchUpdateMembers(ctx, l.gclient, pool.ID, loadbalancer.ID, nodesList, &port, portIndex, name, when, "")
 		if err != nil {
 			if !errors.Is(err, ErrNoBatchUpdate) {
 				return nil, err
@@ -352,7 +352,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			port := v1.ServicePort{}
 			portIndex := 0
 			when := "delete remaining obsolete listener"
-			_, err := batchUpdateMembers(ctx, l.gclient, pool.ID, loadbalancer.ID, nodesList, &port, portIndex, name, when)
+			_, err := batchUpdateMembers(ctx, l.gclient, pool.ID, loadbalancer.ID, nodesList, &port, portIndex, name, when, "")
 			if err != nil {
 				if !errors.Is(err, ErrNoBatchUpdate) {
 					return nil, err
@@ -483,7 +483,7 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 			return fmt.Errorf("loadbalancer %s does not contain required pool for listener %s", lb.ID, listener.ID)
 		}
 
-		updatedMembers, err := batchUpdateMembers(ctx, l.gclient, pool.ID, lb.ID, nodesList, &port, portIndex, name, "updating loadbalancer")
+		updatedMembers, err := batchUpdateMembers(ctx, l.gclient, pool.ID, lb.ID, nodesList, &port, portIndex, name, "updating loadbalancer", "")
 		if err != nil {
 			if !errors.Is(err, ErrNoBatchUpdate) {
 				return err
@@ -907,7 +907,7 @@ func memberExistsInCS(ctx context.Context, client *gobizfly.Client, serverID str
 	}
 }
 
-func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID string, lbID string, nodes []*v1.Node, port *v1.ServicePort, portIndex int, name string, when string) (int, error) {
+func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID string, lbID string, nodes []*v1.Node, port *v1.ServicePort, portIndex int, name string, when string, subnetID string) (int, error) {
 	batchUpdateNodeList := []gobizfly.CloudLoadBalancerExtendMemberUpdateRequest{}
 	members, err := getMembersByPoolID(ctx, client, poolID)
 	if err != nil {
@@ -917,6 +917,12 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 	klog.Infof("Number of members in batchUpdate %v", initialMembers)
 
 	if len(nodes) == 0 && len(members) > 0 {
+		// get subnetID
+		currentSubnetID := subnetID
+		if currentSubnetID == "" {
+			currentSubnetID = members[0].SubnetID
+		}
+
 		// When vpn server crashes, append nodes to batchUpdateNodeList if members still exist in CS
 		for _, member := range members {
 			memberExists := memberExistsInCS(ctx, client, member.ID)
@@ -929,13 +935,19 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 					CloudLoadBalancerMemberUpdateRequest: memberName,
 					Address:                              member.Address,
 					ProtocolPort:                         int(port.NodePort),
+					SubnetID:                             currentSubnetID,
 				})
 			}
 		}
 	} else {
 		for _, node := range nodes {
-			addr, err := nodeAddressForLB(node)
+			// get subnetID
+			currentSubnetID := subnetID
+			if len(members) != 0 && currentSubnetID == "" {
+				currentSubnetID = members[0].SubnetID
+			}
 
+			addr, err := nodeAddressForLB(node)
 			if err != nil {
 				if errors.Is(err, ErrNoAddressFound) {
 					// Node failure, do not create member
@@ -954,6 +966,7 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 					CloudLoadBalancerMemberUpdateRequest: member,
 					Address:                              addr,
 					ProtocolPort:                         int(port.NodePort),
+					SubnetID:                             currentSubnetID,
 				})
 			} else {
 				member := gobizfly.CloudLoadBalancerMemberUpdateRequest{
@@ -963,6 +976,7 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 					CloudLoadBalancerMemberUpdateRequest: member,
 					Address:                              addr,
 					ProtocolPort:                         int(port.NodePort),
+					SubnetID:                             currentSubnetID,
 				})
 				// After all members have been processed, remaining members are deleted as obsolete.
 				members = popMember(members, addr, int(port.NodePort))
@@ -1011,7 +1025,7 @@ func (l *loadbalancers) changePoolProtocol(ctx context.Context, lbName string, u
 
 	// Create Batch update members
 	when := "change protocol in ensuring loadbalancer"
-	_, err = batchUpdateMembers(ctx, l.gclient, new_pool.ID, lbID, nodes, &port, portIndex, lbName, when)
+	_, err = batchUpdateMembers(ctx, l.gclient, new_pool.ID, lbID, nodes, &port, portIndex, lbName, when, "")
 	if err != nil {
 		if !errors.Is(err, ErrNoBatchUpdate) {
 			return err
