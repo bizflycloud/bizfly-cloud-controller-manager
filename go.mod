@@ -3,7 +3,7 @@ module github.com/bizflycloud/bizfly-cloud-controller-manager
 go 1.23
 
 require (
-	github.com/bizflycloud/gobizfly v1.1.7
+	github.com/bizflycloud/gobizfly v1.1.8
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/spf13/pflag v1.0.5
 	k8s.io/api v0.31.0
@@ -39,6 +39,7 @@ require (
 	github.com/go-openapi/swag v0.22.4 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
+	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/cel-go v0.20.1 // indirect
 	github.com/google/gnostic-models v0.6.8 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
