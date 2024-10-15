@@ -2,7 +2,7 @@
 # Use of this source code is governed by a BSD-style
 # license that can be found in the LICENSE file.
 
-FROM golang:1.23-alpine3.20   AS build-env
+FROM golang:1.23-alpine3.20 AS build-env
 WORKDIR /app
 ADD . /app
 RUN go mod tidy

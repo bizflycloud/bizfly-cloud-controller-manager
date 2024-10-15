@@ -8,8 +8,8 @@ github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 h1:DklsrG3d
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2/go.mod h1:WaHUgvxTVq04UNunO+XhnAqY/wQc+bxr74GqbsZ/Jqw=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
-github.com/bizflycloud/gobizfly v1.1.7 h1:JRL/diOunH2gGQDdVhB57ge1/WWMJrYIlr+QlQ/zXK0=
-github.com/bizflycloud/gobizfly v1.1.7/go.mod h1:ZX0NT9pQnk+uY3VUwRDuINvkrOAjHDHX8+sv7GsQNOA=
+github.com/bizflycloud/gobizfly v1.1.8 h1:WIuh2eFVMp0G5kwQpg5jU+cJjJ0kngI32mpSBj9Dl+4=
+github.com/bizflycloud/gobizfly v1.1.8/go.mod h1:ZX0NT9pQnk+uY3VUwRDuINvkrOAjHDHX8+sv7GsQNOA=
 github.com/blang/semver/v4 v4.0.0 h1:1PFHFE6yCCTv8C1TeyNNarDzntLi7wMI5i/pzqYIsAM=
 github.com/blang/semver/v4 v4.0.0/go.mod h1:IbckMUScFkM3pff0VJDNKRiT6TG/YpiHIM2yvyW5YoQ=
 github.com/cenkalti/backoff/v4 v4.3.0 h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=
