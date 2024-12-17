@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -260,17 +261,31 @@ func serverByID(
 
 func serverByName(ctx context.Context, client *gobizfly.Client, name types.NodeName) (*gobizfly.Server, error) {
 	klog.V(5).Infof("Looking for server name: %s", string(name))
-	servers, err := client.CloudServer.List(ctx, &gobizfly.ServerListOptions{})
-	if err != nil {
-		return nil, err
-	}
 
-	for _, server := range servers {
-		klog.V(5).Infof("Server %s", strings.ToLower(server.Name))
-		if strings.ToLower(server.Name) == string(name) {
-			return server, nil
+	for attempt := 1; attempt <= 3; attempt++ {
+		servers, err := client.CloudServer.List(ctx, &gobizfly.ServerListOptions{})
+		if err != nil {
+			klog.V(2).Infof("Error when getting server list, attempt %d: %v", attempt, err)
+			if attempt < 3 {
+				time.Sleep(backoff(attempt))
+				continue
+			}
+			return nil, fmt.Errorf("failed to list servers after %d attempts: %w", attempt, err)
+		}
+
+		for _, server := range servers {
+			if strings.EqualFold(server.Name, string(name)) {
+				return server, nil
+			}
+		}
+
+		klog.V(2).Infof("Server %v not found in list, attempt %d", name, attempt)
+
+		if attempt < 3 {
+			time.Sleep(backoff(attempt))
 		}
 	}
+
 	return nil, cloudprovider.InstanceNotFound
 }
 
@@ -309,4 +324,8 @@ func serverIDFromProviderID(providerID string) (instanceID string, err error) {
 		)
 	}
 	return matches[1], nil
+}
+
+func backoff(attempt int) time.Duration {
+	return time.Duration(attempt*(attempt+1)) * time.Second
 }
