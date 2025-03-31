@@ -51,8 +51,10 @@ const (
 	INTERNAL_NETWORK_TYPE = "internal"
 	EXTERNAL_NETWORK_TYPE = "external"
 
-	SMALL_LB_TYPE  = "small"
-	MEDIUM_LB_TYPE = "medium"
+	SMALL_LB_TYPE     = "small"
+	MEDIUM_LB_TYPE    = "medium"
+	LARGE_LB_TYPE     = "large"
+	XTRALARGE_LB_TYPE = "xtralarge"
 	// loadbalancerDelete* is configuration of exponential backoff for
 	// waiting for delete operation to complete. Starting with 1
 	// seconds, multiplying by 1.2 with each step and taking 13 steps at maximum
@@ -207,6 +209,24 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	}
 	if loadbalancer != nil {
 		if loadbalancer.ProvisioningStatus == "ACTIVE" {
+			// Check if load balancer type has changed
+			if loadbalancer.Type != lbType {
+				klog.Infof("Load balancer type change detected: current=%s, requested=%s", loadbalancer.Type, lbType)
+				err := l.gclient.CloudLoadBalancer.Resize(ctx, loadbalancer.ID, lbType)
+				if err != nil {
+					klog.Errorf("error resizing load balancer %s to type %s: %v", loadbalancer.ID, lbType, err)
+					return nil, fmt.Errorf("error resizing load balancer %s to type %s: %v", loadbalancer.ID, lbType, err)
+				}
+				
+				// Wait for the resize operation to complete
+				provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
+				if err != nil {
+					klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after resizing, current provisioning status %s", provisioningStatus)
+					return nil, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after resizing, current provisioning status %s", provisioningStatus)
+				}
+				klog.Infof("Load balancer %s successfully resized to type %s", loadbalancer.ID, lbType)
+			}
+			
 			oldListeners, err := getListenersByLoadBalancerID(ctx, l.gclient, loadbalancer.ID)
 			if err != nil {
 				klog.Errorf("error getting LB %s listeners: %s", loadbalancer.Name, err)
@@ -424,6 +444,25 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 			return fmt.Errorf("loadbalancer does not exist for Service %s", serviceName)
 		}
 		return err
+	}
+	
+	// Check if load balancer type needs to be updated
+	lbType := getStringFromServiceAnnotation(service, annotationLoadBalancerType, MEDIUM_LB_TYPE)
+	if lb.Type != lbType && lb.ProvisioningStatus == "ACTIVE" {
+		klog.Infof("Load balancer type change detected during update: current=%s, requested=%s", lb.Type, lbType)
+		err := l.gclient.CloudLoadBalancer.Resize(ctx, lb.ID, lbType)
+		if err != nil {
+			klog.Errorf("error resizing load balancer %s to type %s: %v", lb.ID, lbType, err)
+			return fmt.Errorf("error resizing load balancer %s to type %s: %v", lb.ID, lbType, err)
+		}
+		
+		// Wait for the resize operation to complete
+		provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lb.ID)
+		if err != nil {
+			klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after resizing, current provisioning status %s", provisioningStatus)
+			return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after resizing, current provisioning status %s", provisioningStatus)
+		}
+		klog.Infof("Load balancer %s successfully resized to type %s", lb.ID, lbType)
 	}
 
 	type portKey struct {
