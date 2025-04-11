@@ -76,24 +76,35 @@ func (s *servers) NodeAddressesByProviderID(ctx context.Context, providerID stri
 	klog.V(4).Infof("NodeAddressesByProviderID(%v) called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
+		klog.V(3).Infof("Failed to extract server ID from providerID %s: %v", providerID, err)
 		return []v1.NodeAddress{}, err
 	}
+	
 	server, node, err := serverByID(ctx, s.gclient, serverID)
+	if errors.Is(err, gobizfly.ErrNotFound) {
+		klog.V(3).Infof("Server with ID %s not found", serverID)
+		return []v1.NodeAddress{}, fmt.Errorf("server %s not found: %w", serverID, err)
+	}
 	if err != nil {
+		klog.V(2).Infof("Error getting server by ID %s: %v", serverID, err)
 		return []v1.NodeAddress{}, err
 	}
+	
 	var addrs []v1.NodeAddress
 	if server != nil {
 		addrs, err = nodeAdddresses(server, nil)
 		if err != nil {
+			klog.V(2).Infof("Error getting node addresses for server %s: %v", serverID, err)
 			return nil, err
 		}
 	} else if node != nil {
 		addrs, err = nodeAdddresses(nil, node)
 		if err != nil {
+			klog.V(2).Infof("Error getting node addresses for everywhere node %s: %v", serverID, err)
 			return nil, err
 		}
 	}
+	
 	klog.V(4).Infof("NodeAddressesByProviderID(%v) => %v", providerID, addrs)
 	return addrs, nil
 }
@@ -128,23 +139,35 @@ func (s *servers) InstanceTypeByProviderID(ctx context.Context, providerID strin
 	klog.V(4).Infof("InstanceTypeByProviderID(%v) is called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
+		klog.V(3).Infof("Failed to extract server ID from providerID %s: %v", providerID, err)
 		return "", err
 	}
+	
 	server, node, err := serverByID(ctx, s.gclient, serverID)
+	if errors.Is(err, gobizfly.ErrNotFound) {
+		klog.V(3).Infof("Server with ID %s not found", serverID)
+		return "", fmt.Errorf("server %s not found: %w", serverID, err)
+	}
 	if err != nil {
+		klog.V(2).Infof("Error getting server by ID %s: %v", serverID, err)
 		return "", err
 	}
+	
 	if server != nil {
 		var f *flavor
 		err = mapstructure.Decode(server.Flavor, &f)
 		if err != nil {
+			klog.V(2).Infof("Error decoding flavor for server %s: %v", serverID, err)
 			return "", err
 		}
 		return f.Name, nil
 	}
+	
 	if node != nil {
 		return node.UUID, nil
 	}
+	
+	klog.V(3).Infof("No server or node found with ID %s", serverID)
 	return "", fmt.Errorf("server %s not found", serverID)
 }
 
@@ -170,20 +193,21 @@ func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID str
 	klog.V(4).Infof("InstanceExistsByProviderID(%v) is called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
-		return false, err
+		klog.V(3).Infof("Failed to extract server ID from providerID %s: %v", providerID, err)
+		return false, nil // Return false without error to avoid breaking node operations
 	}
+	
 	server, node, err := serverByID(ctx, s.gclient, serverID)
 	if errors.Is(err, gobizfly.ErrNotFound) {
+		klog.V(3).Infof("Server with ID %s not found", serverID)
 		return false, nil
 	}
 	if err != nil {
+		klog.V(2).Infof("Error getting server by ID %s: %v", serverID, err)
 		return false, err
 	}
-	if server != nil || node != nil {
-		return true, nil
-	} else {
-		return false, err
-	}
+	
+	return (server != nil || node != nil), nil
 }
 
 // InstanceShutdownByProviderID returns true if the instance is shutdown in cloudprovider
@@ -191,12 +215,20 @@ func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID s
 	klog.V(4).Infof("InstanceShutdownByProviderID(%v) is called", providerID)
 	serverID, err := serverIDFromProviderID(providerID)
 	if err != nil {
-		return false, err
+		klog.V(3).Infof("Failed to extract server ID from providerID %s: %v", providerID, err)
+		return false, nil // Return false without error to avoid breaking node operations
 	}
+	
 	server, node, err := serverByID(ctx, s.gclient, serverID)
-	if errors.Is(err, gobizfly.ErrNotFound) || err != nil {
+	if errors.Is(err, gobizfly.ErrNotFound) {
+		klog.V(3).Infof("Server with ID %s not found", serverID)
 		return false, nil
 	}
+	if err != nil {
+		klog.V(2).Infof("Error getting server by ID %s: %v", serverID, err)
+		return false, nil // Handle errors gracefully
+	}
+	
 	if server != nil {
 		if server.Status == instanceShutoff {
 			return true, nil
@@ -261,28 +293,47 @@ func serverByID(
 
 func serverByName(ctx context.Context, client *gobizfly.Client, name types.NodeName) (*gobizfly.Server, error) {
 	klog.V(5).Infof("Looking for server name: %s", string(name))
-
-	for attempt := 1; attempt <= 3; attempt++ {
+	
+	maxAttempts := 5 // Increased from 3 to 5 for better reliability
+	
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		servers, err := client.CloudServer.List(ctx, &gobizfly.ServerListOptions{})
 		if err != nil {
 			klog.V(2).Infof("Error when getting server list, attempt %d: %v", attempt, err)
-			if attempt < 3 {
-				time.Sleep(backoff(attempt))
+			if attempt < maxAttempts {
+				sleepDuration := backoff(attempt)
+				klog.V(3).Infof("Retrying after %v", sleepDuration)
+				time.Sleep(sleepDuration)
 				continue
 			}
 			return nil, fmt.Errorf("failed to list servers after %d attempts: %w", attempt, err)
 		}
+		
+		// Check if the server list is empty
+		if len(servers) == 0 {
+			klog.V(2).Infof("Retrieved empty server list, attempt %d", attempt)
+			if attempt < maxAttempts {
+				sleepDuration := backoff(attempt)
+				klog.V(3).Infof("Retrying after %v", sleepDuration)
+				time.Sleep(sleepDuration)
+				continue
+			}
+			return nil, fmt.Errorf("server list is empty after %d attempts", maxAttempts)
+		}
 
 		for _, server := range servers {
 			if strings.EqualFold(server.Name, string(name)) {
+				klog.V(5).Infof("Found server %s with ID %s", server.Name, server.ID)
 				return server, nil
 			}
 		}
 
-		klog.V(2).Infof("Server %v not found in list, attempt %d", name, attempt)
+		klog.V(2).Infof("Server %v not found in list of %d servers, attempt %d", name, len(servers), attempt)
 
-		if attempt < 3 {
-			time.Sleep(backoff(attempt))
+		if attempt < maxAttempts {
+			sleepDuration := backoff(attempt)
+			klog.V(3).Infof("Retrying after %v", sleepDuration)
+			time.Sleep(sleepDuration)
 		}
 	}
 
@@ -312,17 +363,27 @@ var providerIDRegexp = regexp.MustCompile(`^` + ProviderName + `://([^/]+)$`)
 // See cloudprovider.GetInstanceProviderID and Instances.InstanceID.
 func serverIDFromProviderID(providerID string) (instanceID string, err error) {
 	// https://github.com/kubernetes/kubernetes/issues/85731
-	if providerID != "" && !strings.Contains(providerID, "://") {
+	if providerID == "" {
+		return "", fmt.Errorf("providerID cannot be empty")
+	}
+
+	if !strings.Contains(providerID, "://") {
 		providerID = ProviderName + "://" + providerID
 	}
 
 	matches := providerIDRegexp.FindStringSubmatch(providerID)
 	if len(matches) != 2 {
 		return "", fmt.Errorf(
-			"ProviderID \"%w\" didn't match expected format \"bizflycloud:///InstanceID\"",
+			"ProviderID \"%s\" didn't match expected format \"bizflycloud://InstanceID\"",
 			providerID,
 		)
 	}
+	
+	// Check if we got an empty instance ID
+	if matches[1] == "" {
+		return "", fmt.Errorf("empty instance ID in providerID: %s", providerID)
+	}
+	
 	return matches[1], nil
 }
 
