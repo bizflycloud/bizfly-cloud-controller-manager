@@ -100,7 +100,11 @@ func (s *servers) NodeAddressesByProviderID(ctx context.Context, providerID stri
 
 // InstanceID returns the cloud provider ID of the node with the specified NodeName.
 func (s *servers) InstanceID(ctx context.Context, nodeName types.NodeName) (string, error) {
-	klog.V(4).Infof("InstaneID(%v) is called", nodeName)
+	if nodeName == "" {
+		klog.Errorf("Empty nodeName provided to InstanceID")
+		return "", fmt.Errorf("nodeName cannot be empty")
+	}
+	klog.V(4).Infof("InstanceID(%v) is called", nodeName)
 	server, err := serverByName(ctx, s.gclient, nodeName)
 	if err != nil {
 		return "", err
@@ -202,7 +206,7 @@ func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID s
 			return true, nil
 		}
 	} else if node != nil {
-		if node.Deleted == true {
+		if node.Deleted {
 			return true, nil
 		}
 	}
@@ -319,7 +323,7 @@ func serverIDFromProviderID(providerID string) (instanceID string, err error) {
 	matches := providerIDRegexp.FindStringSubmatch(providerID)
 	if len(matches) != 2 {
 		return "", fmt.Errorf(
-			"ProviderID \"%w\" didn't match expected format \"bizflycloud:///InstanceID\"",
+			"ProviderID \"%s\" didn't match expected format \"bizflycloud:///InstanceID\"",
 			providerID,
 		)
 	}
