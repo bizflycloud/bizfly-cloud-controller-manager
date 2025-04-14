@@ -100,11 +100,16 @@ func (s *servers) NodeAddressesByProviderID(ctx context.Context, providerID stri
 
 // InstanceID returns the cloud provider ID of the node with the specified NodeName.
 func (s *servers) InstanceID(ctx context.Context, nodeName types.NodeName) (string, error) {
-	klog.V(4).Infof("InstaneID(%v) is called", nodeName)
+	if nodeName == "" {
+		klog.Errorf("Empty nodeName provided to InstanceID")
+		return "", fmt.Errorf("nodeName cannot be empty")
+	}
+	klog.Infof("InstanceID(%v) is called", nodeName)
 	server, err := serverByName(ctx, s.gclient, nodeName)
 	if err != nil {
 		return "", err
 	}
+	klog.Infof("InstanceID(%v) => %s", nodeName, server.ID)
 	return server.ID, nil
 }
 
@@ -202,7 +207,7 @@ func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID s
 			return true, nil
 		}
 	} else if node != nil {
-		if node.Deleted == true {
+		if node.Deleted {
 			return true, nil
 		}
 	}
@@ -260,29 +265,31 @@ func serverByID(
 }
 
 func serverByName(ctx context.Context, client *gobizfly.Client, name types.NodeName) (*gobizfly.Server, error) {
-	klog.V(5).Infof("Looking for server name: %s", string(name))
+	klog.Infof("serverByName - Looking for server name: %s", string(name))
 
-	for attempt := 1; attempt <= 3; attempt++ {
+	timeout := 15 * time.Second
+	for attempt := 1; attempt <= 12; attempt++ { // 12 attempts * 15s = 3 minutes
 		servers, err := client.CloudServer.List(ctx, &gobizfly.ServerListOptions{})
 		if err != nil {
-			klog.V(2).Infof("Error when getting server list, attempt %d: %v", attempt, err)
-			if attempt < 3 {
-				time.Sleep(backoff(attempt))
+			klog.Infof("serverByName - Error when getting server list, attempt %d: %v", attempt, err)
+			if attempt < 12 {
+				time.Sleep(timeout)
 				continue
 			}
 			return nil, fmt.Errorf("failed to list servers after %d attempts: %w", attempt, err)
 		}
 
 		for _, server := range servers {
-			if strings.EqualFold(server.Name, string(name)) {
+			if strings.EqualFold(server.Name, string(name)) && server.ID != "" {
+				klog.Infof("serverByName - Found server ID: %s", server.ID)
 				return server, nil
 			}
 		}
 
-		klog.V(2).Infof("Server %v not found in list, attempt %d", name, attempt)
+		klog.Infof("serverByName - Server %v not found in list, attempt %d", name, attempt)
 
-		if attempt < 3 {
-			time.Sleep(backoff(attempt))
+		if attempt < 12 {
+			time.Sleep(timeout)
 		}
 	}
 
@@ -312,6 +319,7 @@ var providerIDRegexp = regexp.MustCompile(`^` + ProviderName + `://([^/]+)$`)
 // See cloudprovider.GetInstanceProviderID and Instances.InstanceID.
 func serverIDFromProviderID(providerID string) (instanceID string, err error) {
 	// https://github.com/kubernetes/kubernetes/issues/85731
+	klog.Infof("serverIDFromProviderID - providerID: %s", providerID)
 	if providerID != "" && !strings.Contains(providerID, "://") {
 		providerID = ProviderName + "://" + providerID
 	}
@@ -319,13 +327,9 @@ func serverIDFromProviderID(providerID string) (instanceID string, err error) {
 	matches := providerIDRegexp.FindStringSubmatch(providerID)
 	if len(matches) != 2 {
 		return "", fmt.Errorf(
-			"ProviderID \"%w\" didn't match expected format \"bizflycloud:///InstanceID\"",
+			"ProviderID \"%s\" didn't match expected format \"bizflycloud:///InstanceID\"",
 			providerID,
 		)
 	}
 	return matches[1], nil
-}
-
-func backoff(attempt int) time.Duration {
-	return time.Duration(attempt*(attempt+1)) * time.Second
 }
