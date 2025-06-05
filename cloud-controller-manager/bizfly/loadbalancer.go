@@ -521,6 +521,12 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 		if !ok {
 			return fmt.Errorf("loadbalancer %s does not contain required pool for listener %s", lb.ID, listener.ID)
 		}
+		
+		provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lb.ID)
+		if err != nil {
+			klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after resizing, current provisioning status %s", provisioningStatus)
+			return fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after resizing, current provisioning status %s", provisioningStatus)
+		}
 
 		updatedMembers, err := batchUpdateMembers(ctx, l.gclient, pool.ID, lb.ID, nodesList, &port, portIndex, name, "updating loadbalancer", "")
 		if err != nil {
@@ -594,11 +600,13 @@ func waitLoadbalancerActiveProvisioningStatus(ctx context.Context, client *gobiz
 		}
 		provisioningStatus = lb.ProvisioningStatus
 		if lb.ProvisioningStatus == activeStatus {
+			klog.Infof("The status of loadbalancer %s is %s, continue", loadbalancerID, provisioningStatus)
 			return true, nil
 		} else if lb.ProvisioningStatus == errorStatus {
 			klog.Errorf("loadbalancer %s has gone into ERROR state", loadbalancerID)
 			return true, fmt.Errorf("loadbalancer %s has gone into ERROR state", loadbalancerID)
 		} else {
+			klog.Infof("The status of loadbalancer %s is %s, retrying", loadbalancerID, provisioningStatus)
 			return false, nil
 		}
 	})
@@ -1029,6 +1037,12 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 		klog.Infof("batchUpdateNodeList %v", batchUpdateNodeList)
 		klog.Infof("Batch creating members for pool %s when %s", poolID, when)
 		// Calling batchUpdate
+		provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, client, lbID)
+		if err != nil {
+			klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
+			return 0, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
+		}
+
 		err = client.CloudLoadBalancer.Members().BatchUpdate(ctx, poolID, &gobizfly.CloudLoadBalancerBatchMemberUpdateRequest{
 			Members: batchUpdateNodeList,
 		})
@@ -1037,7 +1051,7 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 			return 0, fmt.Errorf("error batch update LB pool members %s", err)
 		}
 
-		provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, client, lbID)
+		provisioningStatus, err = waitLoadbalancerActiveProvisioningStatus(ctx, client, lbID)
 		if err != nil {
 			klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
 			return 0, fmt.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating member, current provisioning status %s", provisioningStatus)
