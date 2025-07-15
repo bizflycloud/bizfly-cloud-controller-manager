@@ -898,7 +898,14 @@ func filterTargetNodes(apiService *v1.Service, nodes []*v1.Node) []*v1.Node {
 			allFiltersMatch := true
 
 			for targetLabelKey, targetLabelValue := range targetNodeLabels {
-				if nodeLabelValue, ok := node.Labels[targetLabelKey]; !ok || (strings.EqualFold(nodeLabelValue, targetLabelValue) && targetLabelValue != "") {
+				nodeLabelValue, ok := node.Labels[targetLabelKey]
+				if !ok {
+					// Node doesn't have the required label
+					allFiltersMatch = false
+					break
+				}
+				if targetLabelValue != "" && !strings.EqualFold(nodeLabelValue, targetLabelValue) {
+					// Node has the label but value doesn't match
 					allFiltersMatch = false
 					break
 				}
@@ -910,6 +917,7 @@ func filterTargetNodes(apiService *v1.Service, nodes []*v1.Node) []*v1.Node {
 	}
 	return targetNodes
 }
+
 
 func getKeyValueFromServiceAnnotation(service *v1.Service, annotationKey string) map[string]string {
 	klog.Infof("getKeyValueFromServiceAnnotation(%v, %v)", service, annotationKey)
