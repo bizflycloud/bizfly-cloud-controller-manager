@@ -48,7 +48,7 @@ func (z *zones) GetZone(ctx context.Context) (cloudprovider.Zone, error) {
 func (z *zones) GetZoneByProviderID(ctx context.Context, providerID string) (cloudprovider.Zone, error) {
 	id, err := serverIDFromProviderID(providerID)
 	if err != nil {
-		everywhere_node, err := z.gclient.KubernetesEngine.GetEverywhere(ctx, id)
+		everywhere_node, err := z.gclient.KubernetesEngine.GetEverywhere(ctx, providerID)
 		if err != nil {
 			return cloudprovider.Zone{}, err
 		}

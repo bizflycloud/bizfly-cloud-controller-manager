@@ -199,8 +199,8 @@ func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID s
 		return false, err
 	}
 	server, node, err := serverByID(ctx, s.gclient, serverID)
-	if errors.Is(err, gobizfly.ErrNotFound) || err != nil {
-		return false, nil
+	if err != nil {
+		return false, err
 	}
 	if server != nil {
 		if server.Status == instanceShutoff {
