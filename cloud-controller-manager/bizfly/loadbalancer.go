@@ -170,11 +170,14 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 	networkType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerNetworkType, EXTERNAL_NETWORK_TYPE)
 	lbType := getStringFromServiceAnnotation(apiService, annotationLoadBalancerType, MEDIUM_LB_TYPE)
 	useProxyProtocol, err := getBoolFromServiceAnnotation(apiService, annotationEnableProxyProtocol, false)
-	enableIngressHostname, err := getBoolFromServiceAnnotation(apiService, annotationEnableIngressHostname, false)
-	vpcNetworkName := getStringFromServiceAnnotation(apiService, annotationVPCNetworkName, "")
 	if err != nil {
 		return nil, err
 	}
+	enableIngressHostname, err := getBoolFromServiceAnnotation(apiService, annotationEnableIngressHostname, false)
+	if err != nil {
+		return nil, err
+	}
+	vpcNetworkName := getStringFromServiceAnnotation(apiService, annotationVPCNetworkName, "")
 	// Affinity Configuration for pool
 	affinity := apiService.Spec.SessionAffinity
 	var persistence *gobizfly.SessionPersistence
@@ -238,7 +241,14 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 				if listener == nil {
 					continue
 				}
-				oldPool, _ := getPoolByListenerID(ctx, l.gclient, loadbalancer.ID, listener.ID)
+				oldPool, err := getPoolByListenerID(ctx, l.gclient, loadbalancer.ID, listener.ID)
+				if err != nil {
+					if errors.Is(err, ErrNotFound) {
+						klog.Infof("Pool for listener %s not found, skipping", listener.ID)
+						continue
+					}
+					return nil, fmt.Errorf("error getting pool for listener %s: %v", listener.ID, err)
+				}
 				// get current pool protocol
 				if oldPool.Protocol == "PROXY" && useProxyProtocol {
 					klog.Infof("Pool %s already used PROXY protocol", oldPool.ID)
@@ -302,10 +312,10 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			// Create a new pool
 			// use protocol of listener
 			pool, err = l.createPoolForListener(ctx, listener, portIndex, loadbalancer.ID, name, persistence, useProxyProtocol, true)
-			klog.Infof("Pool created for listener %s: %s", listener.ID, pool.ID)
 			if err != nil {
 				return nil, err
 			}
+			klog.Infof("Pool created for listener %s: %s", listener.ID, pool.ID)
 			provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
 			if err != nil {
 				klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %s", provisioningStatus)
@@ -488,6 +498,10 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 	for _, listenerID := range listenerIDs {
 		pool, err := getPoolByListenerID(ctx, l.gclient, lb.ID, listenerID)
 		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				klog.Infof("Pool for listener %s not found, skipping", listenerID)
+				continue
+			}
 			klog.Errorf("error getting pool for listener %s: %s", listenerID, err)
 			return fmt.Errorf("error getting pool for listener %s: %s", listenerID, err)
 		}
@@ -951,15 +965,11 @@ func memberExistsInCS(ctx context.Context, client *gobizfly.Client, serverID str
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return false
-		} else {
-			return true
 		}
-	}
-	if server != nil {
-		return false
-	} else {
+		// On API error, assume member still exists to avoid accidental removal
 		return true
 	}
+	return server != nil
 }
 
 func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID string, lbID string, nodes []*v1.Node, port *v1.ServicePort, portIndex int, name string, when string, subnetID string) (int, error) {
@@ -1074,10 +1084,10 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 func (l *loadbalancers) changePoolProtocol(ctx context.Context, lbName string, useProxyProtocol bool, listener *gobizfly.CloudLoadBalancerListener, portIndex int, port v1.ServicePort, lbID string, persistence *gobizfly.SessionPersistence, nodes []*v1.Node, oldPool *gobizfly.CloudLoadBalancerPool) error {
 	//create new pool
 	new_pool, err := l.createPoolForListener(ctx, listener, portIndex, lbID, lbName, persistence, useProxyProtocol, false)
-	klog.Infof("Pool created for listener %s: %s", listener.ID, new_pool.ID)
 	if err != nil {
 		return err
 	}
+	klog.Infof("Pool created for listener %s: %s", listener.ID, new_pool.ID)
 	provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lbID)
 	if err != nil {
 		klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after creating pool, current provisioning status %s", provisioningStatus)
