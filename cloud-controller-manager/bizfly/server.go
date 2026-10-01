@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"regexp"
 	"strings"
 	"time"
@@ -217,27 +218,74 @@ func (s *servers) InstanceShutdownByProviderID(ctx context.Context, providerID s
 	return false, nil
 }
 
+type openstackAddress struct {
+	IPType string `mapstructure:"OS-EXT-IPS:type"`
+	Addr   string `mapstructure:"addr"`
+}
+
+func isPublicIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	return !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !ip.IsUnspecified()
+}
+
 // nodeAddresses returns addresses of server
 func nodeAdddresses(server *gobizfly.Server, node *gobizfly.EverywhereNode) ([]v1.NodeAddress, error) {
 	var addresses []v1.NodeAddress
+	added := make(map[string]bool)
+
+	addAddr := func(addrType v1.NodeAddressType, ip string) {
+		if ip == "" || added[ip] {
+			return
+		}
+		addresses = append(addresses, v1.NodeAddress{Type: addrType, Address: ip})
+		added[ip] = true
+	}
+
 	if server != nil {
+		// 1. Process server.Addresses map from OpenStack Nova
+		if server.Addresses != nil {
+			var rawAddresses map[string][]openstackAddress
+			if err := mapstructure.Decode(server.Addresses, &rawAddresses); err == nil {
+				for netName, addrs := range rawAddresses {
+					for _, addr := range addrs {
+						if addr.IPType == "floating" ||
+							strings.HasPrefix(strings.ToUpper(netName), "EXT") ||
+							strings.Contains(strings.ToLower(netName), "wan") ||
+							isPublicIP(addr.Addr) {
+							addAddr(v1.NodeExternalIP, addr.Addr)
+						} else {
+							addAddr(v1.NodeInternalIP, addr.Addr)
+						}
+					}
+				}
+			} else {
+				klog.Warningf("nodeAdddresses - Failed to decode server.Addresses: %v", err)
+			}
+		}
+
+		// 2. Process server.IPAddresses struct
 		for i := range server.IPAddresses.LanAddresses {
-			addresses = append(
-				addresses,
-				v1.NodeAddress{Type: v1.NodeInternalIP, Address: server.IPAddresses.LanAddresses[i].Address},
-			)
+			addAddr(v1.NodeInternalIP, server.IPAddresses.LanAddresses[i].Address)
 		}
 		for i := range server.IPAddresses.WanV4Addresses {
-			addresses = append(
-				addresses,
-				v1.NodeAddress{Type: v1.NodeExternalIP, Address: server.IPAddresses.WanV4Addresses[i].Address},
-			)
+			addAddr(v1.NodeExternalIP, server.IPAddresses.WanV4Addresses[i].Address)
 		}
+		for i := range server.IPAddresses.WanV6Addresses {
+			addAddr(v1.NodeExternalIP, server.IPAddresses.WanV6Addresses[i].Address)
+		}
+
 		return addresses, nil
 	}
 	if node != nil {
-		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeInternalIP, Address: node.PrivateIP})
-		addresses = append(addresses, v1.NodeAddress{Type: v1.NodeExternalIP, Address: node.PublicIP})
+		if node.PrivateIP != "" {
+			addAddr(v1.NodeInternalIP, node.PrivateIP)
+		}
+		if node.PublicIP != "" {
+			addAddr(v1.NodeExternalIP, node.PublicIP)
+		}
 		return addresses, nil
 	}
 	return addresses, nil
@@ -282,8 +330,13 @@ func serverByName(ctx context.Context, client *gobizfly.Client, name types.NodeN
 
 		for _, server := range servers {
 			if strings.EqualFold(server.Name, string(name)) && server.ID != "" {
-				klog.Infof("serverByName - Found server ID: %s", server.ID)
-				return server, nil
+				klog.Infof("serverByName - Found server ID: %s, fetching full details", server.ID)
+				fullServer, err := client.CloudServer.Get(ctx, server.ID)
+				if err != nil {
+					klog.Warningf("serverByName - Failed to get full server details for %s: %v, falling back to list data", server.ID, err)
+					return server, nil
+				}
+				return fullServer, nil
 			}
 		}
 
@@ -313,7 +366,8 @@ func (s *servers) GetZoneByNodeName(
 }
 
 // If Instances.InstanceID or cloudprovider.GetInstanceProviderID is changed, the regexp should be changed too.
-var providerIDRegexp = regexp.MustCompile(`^` + ProviderName + `://([^/]+)$`)
+// Matches "bizflycloud://<id>", "bizflycloud:///<id>", and "bizflycloud://<region>/<id>".
+var providerIDRegexp = regexp.MustCompile(`^` + ProviderName + `:///*(?:[^/]+/)?([^/]+)$`)
 
 // instanceIDFromProviderID splits a provider's id and return instanceID.
 // A providerID is build out of '${ProviderName}:///${instance-id}'which contains ':///'.
