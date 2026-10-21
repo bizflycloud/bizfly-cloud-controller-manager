@@ -180,7 +180,14 @@ func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID str
 	}
 	server, node, err := serverByID(ctx, s.gclient, serverID)
 	if errors.Is(err, gobizfly.ErrNotFound) {
-		return false, nil
+		// false makes the cloud node lifecycle controller delete the Node object right away,
+		// and the node loses every label set after it registered. Confirm before saying so.
+		gone, confirmErr := confirmServerGone(ctx, s.gclient, serverID)
+		if confirmErr != nil {
+			klog.Warningf("InstanceExistsByProviderID - %s not found but could not confirm it: %v", serverID, confirmErr)
+			return false, confirmErr
+		}
+		return !gone, nil
 	}
 	if err != nil {
 		return false, err
@@ -190,6 +197,26 @@ func (s *servers) InstanceExistsByProviderID(ctx context.Context, providerID str
 	} else {
 		return false, nil
 	}
+}
+
+// confirmServerGone double-checks a NotFound from CloudServer.Get against the project server list,
+// so a transient 404 (token, API gateway) does not get a live node deleted.
+func confirmServerGone(ctx context.Context, client *gobizfly.Client, serverID string) (bool, error) {
+	servers, err := client.CloudServer.List(ctx, &gobizfly.ServerListOptions{})
+	if err != nil {
+		return false, err
+	}
+	if len(servers) == 0 {
+		// The node itself still exists in the cluster, so an empty list is not trustworthy
+		return false, fmt.Errorf("empty server list")
+	}
+	for _, server := range servers {
+		if server.ID == serverID {
+			klog.Warningf("confirmServerGone - %s returned NotFound but is still listed, keeping the node", serverID)
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // InstanceShutdownByProviderID returns true if the instance is shutdown in cloudprovider

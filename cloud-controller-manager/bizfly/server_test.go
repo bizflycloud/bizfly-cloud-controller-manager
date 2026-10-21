@@ -64,6 +64,15 @@ func TestServerByID_NotFoundWhenEverywhereFails(t *testing.T) {
 		_, _ = w.Write([]byte(`{"code": "EVERYWHERE_NOT_SUPPORTED", "message": "Everywhere is no longer supported"}`))
 	})
 
+	// Server list used to confirm a NotFound: deleted-node-123 is not in it
+	mux.HandleFunc("/iaas-cloud/api/servers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+			{"id": "running-node-456", "name": "running-node", "status": "ACTIVE"},
+			{"id": "shutoff-node-789", "name": "shutoff-node", "status": "SHUTOFF"},
+		})
+	})
+
 	// 2. running-node-456: Active running server
 	mux.HandleFunc("/iaas-cloud/api/servers/running-node-456", func(w http.ResponseWriter, r *http.Request) {
 		t.Logf("Received request for running-node-456: %s %s", r.Method, r.URL.Path)
@@ -390,3 +399,81 @@ func TestServerByName_FetchesFullDetails(t *testing.T) {
 	}
 }
 
+func newFakeBizflyClient(t *testing.T, mux *http.ServeMux, url string) *gobizfly.Client {
+	t.Helper()
+	mux.HandleFunc("/api/token", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"token":      "fake-keystone-token",
+			"project_id": "fake-project-id",
+			"expires_at": "2099-01-01T00:00:00Z",
+		})
+	})
+	mux.HandleFunc("/api/auth/service", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"services": []map[string]interface{}{
+				{"name": "Cloud Server", "canonical_name": "cloud_server", "service_url": url + "/iaas-cloud/api", "region": "HaNoi"},
+				{"name": "Kubernetes Engine", "canonical_name": "kubernetes-engine", "service_url": url + "/api/kubernetes-engine", "region": "HaNoi"},
+			},
+		})
+	})
+	client, err := gobizfly.NewClient(gobizfly.WithAPIURL(url), gobizfly.WithRegionName("HN"))
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	tok, err := client.Token.Init(context.Background(), &gobizfly.TokenCreateRequest{
+		AuthMethod: "password", Username: "test", Password: "test", ProjectID: "fake-project-id",
+	})
+	if err != nil {
+		t.Fatalf("Failed to init token: %v", err)
+	}
+	client.SetKeystoneToken(tok)
+	return client
+}
+
+func TestInstanceExistsByProviderID_ConfirmsNotFound(t *testing.T) {
+	cases := []struct {
+		name       string
+		listStatus int
+		listBody   string
+		wantExists bool
+		wantErr    bool
+	}{
+		{"transient 404 but still listed", http.StatusOK, `[{"id": "flaky-node", "status": "ACTIVE"}]`, true, false},
+		{"list fails", http.StatusInternalServerError, `{"message": "boom"}`, false, true},
+		{"empty list", http.StatusOK, `[]`, false, true},
+		{"really gone", http.StatusOK, `[{"id": "other-node", "status": "ACTIVE"}]`, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			serverTest := httptest.NewServer(mux)
+			defer serverTest.Close()
+			client := newFakeBizflyClient(t, mux, serverTest.URL)
+
+			mux.HandleFunc("/iaas-cloud/api/servers/flaky-node", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"message": "Server not found"}`))
+			})
+			mux.HandleFunc("/api/kubernetes-engine/_/node_everywhere/flaky-node", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"code": "EVERYWHERE_NOT_SUPPORTED"}`))
+			})
+			mux.HandleFunc("/iaas-cloud/api/servers", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.listStatus)
+				_, _ = w.Write([]byte(tc.listBody))
+			})
+
+			s := &servers{gclient: client}
+			exists, err := s.InstanceExistsByProviderID(context.Background(), "bizflycloud://flaky-node")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
+			}
+			if exists != tc.wantExists {
+				t.Fatalf("exists = %v, want %v", exists, tc.wantExists)
+			}
+		})
+	}
+}
