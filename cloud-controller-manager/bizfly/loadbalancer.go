@@ -30,8 +30,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
-	cpoerrors "k8s.io/cloud-provider-openstack/pkg/util/errors"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -100,7 +99,6 @@ func (l *loadbalancers) GetLoadBalancer(ctx context.Context, clusterName string,
 	klog.Infof("GetLoadBalancer(%s)", clusterName)
 	name := l.GetLoadBalancerName(ctx, clusterName, service)
 	loadbalancer, err := getLBByName(ctx, l.gclient, name)
-
 	if err != nil {
 		if err == ErrNotFound {
 			return nil, false, nil
@@ -123,7 +121,7 @@ func cutString(original string) string {
 
 // getBoolFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's boolean value or a specified defaultSetting
 func getBoolFromServiceAnnotation(service *v1.Service, annotationKey string, defaultSetting bool) (bool, error) {
-	klog.Infof("getBoolFromServiceAnnotation(%s/%s, %v, %v)", service.Namespace, service.Name, annotationKey, defaultSetting)
+	klog.V(4).Infof("getBoolFromServiceAnnotation(%s/%s, %v, %v)", service.Namespace, service.Name, annotationKey, defaultSetting)
 	if annotationValue, ok := service.Annotations[annotationKey]; ok {
 		returnValue := false
 		switch annotationValue {
@@ -135,10 +133,10 @@ func getBoolFromServiceAnnotation(service *v1.Service, annotationKey string, def
 			return returnValue, fmt.Errorf("unknown %s annotation: %v, specify \"true\" or \"false\" ", annotationKey, annotationValue)
 		}
 
-		klog.Infof("Found a Service Annotation: %v = %v", annotationKey, returnValue)
+		klog.V(4).Infof("Found a Service Annotation: %v = %v", annotationKey, returnValue)
 		return returnValue, nil
 	}
-	klog.Infof("Could not find a Service Annotation; falling back to default setting: %v = %v", annotationKey, defaultSetting)
+	klog.V(4).Infof("Could not find a Service Annotation; falling back to default setting: %v = %v", annotationKey, defaultSetting)
 	return defaultSetting, nil
 }
 
@@ -153,7 +151,6 @@ func (l *loadbalancers) GetLoadBalancerName(ctx context.Context, clusterName str
 // parameters as read-only and not modify them.
 // Parameter 'clusterName' is the name of the cluster as presented to kube-controller-manager
 func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName string, apiService *v1.Service, nodes []*v1.Node) (*v1.LoadBalancerStatus, error) {
-
 	serviceName := fmt.Sprintf("%s/%s", apiService.Namespace, apiService.Name)
 	klog.Infof("EnsureLoadBalancer(%s, %s)", clusterName, serviceName)
 
@@ -220,7 +217,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 					klog.Errorf("error resizing load balancer %s to type %s: %v", loadbalancer.ID, lbType, err)
 					return nil, fmt.Errorf("error resizing load balancer %s to type %s: %v", loadbalancer.ID, lbType, err)
 				}
-				
+
 				// Wait for the resize operation to complete
 				provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
 				if err != nil {
@@ -229,7 +226,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 				}
 				klog.Infof("Load balancer %s successfully resized to type %s", loadbalancer.ID, lbType)
 			}
-			
+
 			oldListeners, err := getListenersByLoadBalancerID(ctx, l.gclient, loadbalancer.ID)
 			if err != nil {
 				klog.Errorf("error getting LB %s listeners: %s", loadbalancer.Name, err)
@@ -284,7 +281,6 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 
 	for portIndex, port := range ports {
 		listener, err := getListenerForPort(oldListeners, port)
-
 		if err != nil {
 			listener, err = l.createListener(ctx, portIndex, int(port.Port), string(port.Protocol), name, loadbalancer.ID)
 			if err != nil {
@@ -342,7 +338,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			//}
 			//TODO use http monitor
 			monitor, err := l.gclient.CloudLoadBalancer.HealthMonitors().Create(ctx, pool.ID, &gobizfly.CloudLoadBalancerHealthMonitorCreateRequest{
-				Name:           cutString(fmt.Sprintf("monitor_%d_%s)", portIndex, name)),
+				Name:           cutString(fmt.Sprintf("monitor_%d_%s", portIndex, name)),
 				Type:           "TCP",
 				Delay:          3,
 				TimeOut:        3,
@@ -391,7 +387,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 			klog.Infof("Deleting obsolete pool %s for listener %s", pool.ID, listener.ID)
 			// delete pool
 			err = l.gclient.CloudLoadBalancer.Pools().Delete(ctx, pool.ID)
-			if err != nil && !cpoerrors.IsNotFound(err) {
+			if err != nil && !errors.Is(err, gobizfly.ErrNotFound) {
 				klog.Errorf("error deleting obsolete pool %s for listener %s: %v", pool.ID, listener.ID, err)
 				return nil, fmt.Errorf("error deleting obsolete pool %s for listener %s: %v", pool.ID, listener.ID, err)
 			}
@@ -403,7 +399,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 		}
 		// delete listener
 		err = l.gclient.CloudLoadBalancer.Listeners().Delete(ctx, listener.ID)
-		if err != nil && !cpoerrors.IsNotFound(err) {
+		if err != nil && !errors.Is(err, gobizfly.ErrNotFound) {
 			return nil, fmt.Errorf("error deleteting obsolete listener: %v", err)
 		}
 		provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, loadbalancer.ID)
@@ -438,7 +434,7 @@ func (l *loadbalancers) EnsureLoadBalancer(ctx context.Context, clusterName stri
 // Parameter 'clusterName' is the name of the cluster as presented to kube-controller-manager
 func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName string, service *v1.Service, nodes []*v1.Node) error {
 	serviceName := fmt.Sprintf("%s/%s", service.Namespace, service.Name)
-	klog.Infof("UpdateLoadBalancer(%v, %s, %v)", clusterName, serviceName, nodes)
+	klog.Infof("UpdateLoadBalancer(%v, %s, %d nodes)", clusterName, serviceName, len(nodes))
 
 	ports := service.Spec.Ports
 	if len(ports) == 0 {
@@ -447,7 +443,6 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 
 	name := l.GetLoadBalancerName(ctx, clusterName, service)
 	lb, err := getLBByName(ctx, l.gclient, name)
-
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			klog.Errorf("loadbalancer does not exist for Service %s", serviceName)
@@ -455,7 +450,7 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 		}
 		return err
 	}
-	
+
 	// Check if load balancer type needs to be updated
 	lbType := getStringFromServiceAnnotation(service, annotationLoadBalancerType, MEDIUM_LB_TYPE)
 	if lb.Type != lbType && lb.ProvisioningStatus == "ACTIVE" {
@@ -465,7 +460,7 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 			klog.Errorf("error resizing load balancer %s to type %s: %v", lb.ID, lbType, err)
 			return fmt.Errorf("error resizing load balancer %s to type %s: %v", lb.ID, lbType, err)
 		}
-		
+
 		// Wait for the resize operation to complete
 		provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lb.ID)
 		if err != nil {
@@ -508,15 +503,9 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 		lbPools[listenerID] = pool
 	}
 
-	addrs := make(map[string]*v1.Node)
+	// batchUpdateMembers skips nodes without an address; one such node (e.g. just re-registered)
+	// must not block the update for the whole Service
 	nodesList := filterTargetNodes(service, nodes)
-	for _, node := range nodesList {
-		addr, err := nodeAddressForLB(node)
-		if err != nil {
-			return err
-		}
-		addrs[addr] = node
-	}
 
 	// Check for adding/removing members associated with each port
 	for portIndex, port := range ports {
@@ -535,7 +524,7 @@ func (l *loadbalancers) UpdateLoadBalancer(ctx context.Context, clusterName stri
 		if !ok {
 			return fmt.Errorf("loadbalancer %s does not contain required pool for listener %s", lb.ID, listener.ID)
 		}
-		
+
 		provisioningStatus, err := waitLoadbalancerActiveProvisioningStatus(ctx, l.gclient, lb.ID)
 		if err != nil {
 			klog.Errorf("timeout when waiting for loadbalancer to be ACTIVE after resizing, current provisioning status %s", provisioningStatus)
@@ -572,7 +561,8 @@ func (l *loadbalancers) EnsureLoadBalancerDeleted(ctx context.Context, clusterNa
 	}
 	err = l.gclient.CloudLoadBalancer.Delete(ctx, &gobizfly.LoadBalancerDeleteRequest{
 		Cascade: true,
-		ID:      lb.ID})
+		ID:      lb.ID,
+	})
 	if err != nil {
 		return err
 	}
@@ -609,8 +599,12 @@ func waitLoadbalancerActiveProvisioningStatus(ctx context.Context, client *gobiz
 	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
 		lb, err := client.CloudLoadBalancer.Get(ctx, loadbalancerID)
 		if err != nil {
-			klog.Infof("Cannot get status of loadbalancer %s", loadbalancerID)
-			return false, err
+			if errors.Is(err, gobizfly.ErrNotFound) {
+				return false, err
+			}
+			// A transient API error must not abort the whole wait: retry within the backoff
+			klog.Warningf("Cannot get status of loadbalancer %s, retrying: %v", loadbalancerID, err)
+			return false, nil
 		}
 		provisioningStatus = lb.ProvisioningStatus
 		if lb.ProvisioningStatus == activeStatus {
@@ -640,7 +634,7 @@ func waitLoadbalancerDeleted(ctx context.Context, client *gobizfly.Client, loadb
 	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
 		_, err := client.CloudLoadBalancer.Get(ctx, loadbalancerID)
 		if err != nil {
-			if cpoerrors.IsNotFound(err) {
+			if errors.Is(err, gobizfly.ErrNotFound) {
 				return true, nil
 			}
 			return false, err
@@ -657,16 +651,16 @@ func waitLoadbalancerDeleted(ctx context.Context, client *gobizfly.Client, loadb
 
 // getStringFromServiceAnnotation searches a given v1.Service for a specific annotationKey and either returns the annotation's value or a specified defaultSetting
 func getStringFromServiceAnnotation(service *v1.Service, annotationKey string, defaultSetting string) string {
-	klog.Infof("getStringFromServiceAnnotation(%v, %v, %v)", service, annotationKey, defaultSetting)
+	klog.V(4).Infof("getStringFromServiceAnnotation(%s/%s, %v, %v)", service.Namespace, service.Name, annotationKey, defaultSetting)
 	if annotationValue, ok := service.Annotations[annotationKey]; ok {
-		//if there is an annotation for this setting, set the "setting" var to it
+		// if there is an annotation for this setting, set the "setting" var to it
 		// annotationValue can be empty, it is working as designed
 		// it makes possible for instance provisioning loadbalancer without floatingip
-		klog.Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
+		klog.V(4).Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
 		return annotationValue
 	}
-	//if there is no annotation, set "settings" var to the value from cloud config
-	klog.Infof("Could not find a Service Annotation; falling back on default setting: %v = %v", annotationKey, defaultSetting)
+	// if there is no annotation, set "settings" var to the value from cloud config
+	klog.V(4).Infof("Could not find a Service Annotation; falling back on default setting: %v = %v", annotationKey, defaultSetting)
 	return defaultSetting
 }
 
@@ -824,7 +818,6 @@ func popMember(members []*gobizfly.CloudLoadBalancerMember, addr string, port in
 func getPoolByListenerID(ctx context.Context, client *gobizfly.Client, loadbalancerID string, listenerID string) (*gobizfly.CloudLoadBalancerPool, error) {
 	listenerPools := make([]*gobizfly.CloudLoadBalancerPool, 0, 1)
 	loadbalancerPools, err := client.CloudLoadBalancer.Pools().List(ctx, loadbalancerID, &gobizfly.ListOptions{})
-
 	if err != nil {
 		return nil, err
 	}
@@ -932,9 +925,8 @@ func filterTargetNodes(apiService *v1.Service, nodes []*v1.Node) []*v1.Node {
 	return targetNodes
 }
 
-
 func getKeyValueFromServiceAnnotation(service *v1.Service, annotationKey string) map[string]string {
-	klog.Infof("getKeyValueFromServiceAnnotation(%v, %v)", service, annotationKey)
+	klog.V(4).Infof("getKeyValueFromServiceAnnotation(%s/%s, %v)", service.Namespace, service.Name, annotationKey)
 	additionalTags := make(map[string]string)
 	if annotationValue, ok := service.Annotations[annotationKey]; ok {
 		klog.Infof("Found a Service Annotation: %v = %v", annotationKey, annotationValue)
@@ -960,18 +952,6 @@ func getKeyValueFromServiceAnnotation(service *v1.Service, annotationKey string)
 	return additionalTags
 }
 
-func memberExistsInCS(ctx context.Context, client *gobizfly.Client, serverID string) bool {
-	server, err := client.CloudServer.Get(ctx, serverID)
-	if err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return false
-		}
-		// On API error, assume member still exists to avoid accidental removal
-		return true
-	}
-	return server != nil
-}
-
 func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID string, lbID string, nodes []*v1.Node, port *v1.ServicePort, portIndex int, name string, when string, subnetID string) (int, error) {
 	batchUpdateNodeList := []gobizfly.CloudLoadBalancerExtendMemberUpdateRequest{}
 	members, err := getMembersByPoolID(ctx, client, poolID)
@@ -988,21 +968,18 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 			currentSubnetID = members[0].SubnetID
 		}
 
-		// When vpn server crashes, append nodes to batchUpdateNodeList if members still exist in CS
+		// No target node at all (e.g. the VPN is down and every node is NotReady): keep the current
+		// members rather than emptying the pool and cutting the traffic
 		for _, member := range members {
-			memberExists := memberExistsInCS(ctx, client, member.ID)
-			// If member exists in CS, then append to batchUpdateNodeList to maintaint the existsing members
-			if memberExists {
-				memberName := gobizfly.CloudLoadBalancerMemberUpdateRequest{
+			batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.CloudLoadBalancerExtendMemberUpdateRequest{
+				CloudLoadBalancerMemberUpdateRequest: gobizfly.CloudLoadBalancerMemberUpdateRequest{
 					Name: member.Name,
-				}
-				batchUpdateNodeList = append(batchUpdateNodeList, gobizfly.CloudLoadBalancerExtendMemberUpdateRequest{
-					CloudLoadBalancerMemberUpdateRequest: memberName,
-					Address:                              member.Address,
-					ProtocolPort:                         int(port.NodePort),
-					SubnetID:                             currentSubnetID,
-				})
-			}
+				},
+				Address: member.Address,
+				// The member's own port: callers deleting an obsolete listener pass an empty ServicePort
+				ProtocolPort: member.ProtocolPort,
+				SubnetID:     currentSubnetID,
+			})
 		}
 	} else {
 		for _, node := range nodes {
@@ -1082,7 +1059,7 @@ func batchUpdateMembers(ctx context.Context, client *gobizfly.Client, poolID str
 }
 
 func (l *loadbalancers) changePoolProtocol(ctx context.Context, lbName string, useProxyProtocol bool, listener *gobizfly.CloudLoadBalancerListener, portIndex int, port v1.ServicePort, lbID string, persistence *gobizfly.SessionPersistence, nodes []*v1.Node, oldPool *gobizfly.CloudLoadBalancerPool) error {
-	//create new pool
+	// create new pool
 	new_pool, err := l.createPoolForListener(ctx, listener, portIndex, lbID, lbName, persistence, useProxyProtocol, false)
 	if err != nil {
 		return err

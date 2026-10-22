@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,7 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/cloud-provider-openstack/pkg/util/metadata"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 
 	"github.com/bizflycloud/gobizfly"
 	"github.com/mitchellh/mapstructure"
@@ -38,7 +39,12 @@ import (
 
 const (
 	instanceShutoff = "SHUTOFF"
+
+	serverByNameAttempts = 12 // 12 attempts * 15s = 3 minutes
 )
+
+// var so tests can shorten it
+var serverByNameRetryInterval = 15 * time.Second
 
 type flavor struct {
 	Name string `mapstructure:"name"`
@@ -272,12 +278,30 @@ func nodeAdddresses(server *gobizfly.Server, node *gobizfly.EverywhereNode) ([]v
 	}
 
 	if server != nil {
-		// 1. Process server.Addresses map from OpenStack Nova
+		// IPAddresses first, in the v2.0.4 order: nodeAddressForLB takes the first InternalIP,
+		// so it has to stay the LAN address and must not change between syncs.
+		for i := range server.IPAddresses.LanAddresses {
+			addAddr(v1.NodeInternalIP, server.IPAddresses.LanAddresses[i].Address)
+		}
+		for i := range server.IPAddresses.WanV4Addresses {
+			addAddr(v1.NodeExternalIP, server.IPAddresses.WanV4Addresses[i].Address)
+		}
+		for i := range server.IPAddresses.WanV6Addresses {
+			addAddr(v1.NodeExternalIP, server.IPAddresses.WanV6Addresses[i].Address)
+		}
+
+		// Then whatever only the Nova Addresses map knows about (e.g. floating IPs),
+		// network names sorted so the order is stable.
 		if server.Addresses != nil {
 			var rawAddresses map[string][]openstackAddress
 			if err := mapstructure.Decode(server.Addresses, &rawAddresses); err == nil {
-				for netName, addrs := range rawAddresses {
-					for _, addr := range addrs {
+				netNames := make([]string, 0, len(rawAddresses))
+				for netName := range rawAddresses {
+					netNames = append(netNames, netName)
+				}
+				sort.Strings(netNames)
+				for _, netName := range netNames {
+					for _, addr := range rawAddresses[netName] {
 						if addr.IPType == "floating" ||
 							strings.HasPrefix(strings.ToUpper(netName), "EXT") ||
 							strings.Contains(strings.ToLower(netName), "wan") ||
@@ -291,17 +315,6 @@ func nodeAdddresses(server *gobizfly.Server, node *gobizfly.EverywhereNode) ([]v
 			} else {
 				klog.Warningf("nodeAdddresses - Failed to decode server.Addresses: %v", err)
 			}
-		}
-
-		// 2. Process server.IPAddresses struct
-		for i := range server.IPAddresses.LanAddresses {
-			addAddr(v1.NodeInternalIP, server.IPAddresses.LanAddresses[i].Address)
-		}
-		for i := range server.IPAddresses.WanV4Addresses {
-			addAddr(v1.NodeExternalIP, server.IPAddresses.WanV4Addresses[i].Address)
-		}
-		for i := range server.IPAddresses.WanV6Addresses {
-			addAddr(v1.NodeExternalIP, server.IPAddresses.WanV6Addresses[i].Address)
 		}
 
 		return addresses, nil
@@ -341,40 +354,54 @@ func serverByID(
 }
 
 func serverByName(ctx context.Context, client *gobizfly.Client, name types.NodeName) (*gobizfly.Server, error) {
-	klog.Infof("serverByName - Looking for server name: %s", string(name))
+	klog.V(4).Infof("serverByName - Looking for server name: %s", string(name))
 
-	timeout := 15 * time.Second
-	for attempt := 1; attempt <= 12; attempt++ { // 12 attempts * 15s = 3 minutes
-		servers, err := client.CloudServer.List(ctx, &gobizfly.ServerListOptions{})
+	for attempt := 1; attempt <= serverByNameAttempts; attempt++ {
+		server, err := findServerByName(ctx, client, string(name))
 		if err != nil {
 			klog.Infof("serverByName - Error when getting server list, attempt %d: %v", attempt, err)
-			if attempt < 12 {
-				time.Sleep(timeout)
-				continue
+			if attempt == serverByNameAttempts {
+				return nil, fmt.Errorf("failed to list servers after %d attempts: %w", attempt, err)
 			}
-			return nil, fmt.Errorf("failed to list servers after %d attempts: %w", attempt, err)
+		} else if server != nil {
+			klog.V(4).Infof("serverByName - Found server ID: %s, fetching full details", server.ID)
+			fullServer, err := client.CloudServer.Get(ctx, server.ID)
+			if err != nil {
+				klog.Warningf("serverByName - Failed to get full server details for %s: %v, falling back to list data", server.ID, err)
+				return server, nil
+			}
+			return fullServer, nil
+		} else {
+			klog.Infof("serverByName - Server %v not found in list, attempt %d", name, attempt)
 		}
 
-		for _, server := range servers {
-			if strings.EqualFold(server.Name, string(name)) && server.ID != "" {
-				klog.Infof("serverByName - Found server ID: %s, fetching full details", server.ID)
-				fullServer, err := client.CloudServer.Get(ctx, server.ID)
-				if err != nil {
-					klog.Warningf("serverByName - Failed to get full server details for %s: %v, falling back to list data", server.ID, err)
-					return server, nil
-				}
-				return fullServer, nil
+		if attempt < serverByNameAttempts {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(serverByNameRetryInterval):
 			}
-		}
-
-		klog.Infof("serverByName - Server %v not found in list, attempt %d", name, attempt)
-
-		if attempt < 12 {
-			time.Sleep(timeout)
 		}
 	}
 
 	return nil, cloudprovider.InstanceNotFound
+}
+
+// findServerByName asks the API to filter by name first; node names are lowercase while server
+// names may not be, so it falls back to the full list when the filtered one has no match.
+func findServerByName(ctx context.Context, client *gobizfly.Client, name string) (*gobizfly.Server, error) {
+	for _, opts := range []*gobizfly.ServerListOptions{{Name: name}, {}} {
+		servers, err := client.CloudServer.List(ctx, opts)
+		if err != nil {
+			return nil, err
+		}
+		for _, server := range servers {
+			if strings.EqualFold(server.Name, name) && server.ID != "" {
+				return server, nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 func (s *servers) GetZoneByNodeName(
@@ -401,7 +428,7 @@ var providerIDRegexp = regexp.MustCompile(`^` + ProviderName + `:///*(?:[^/]+/)?
 // See cloudprovider.GetInstanceProviderID and Instances.InstanceID.
 func serverIDFromProviderID(providerID string) (instanceID string, err error) {
 	// https://github.com/kubernetes/kubernetes/issues/85731
-	klog.Infof("serverIDFromProviderID - providerID: %s", providerID)
+	klog.V(5).Infof("serverIDFromProviderID - providerID: %s", providerID)
 	if providerID != "" && !strings.Contains(providerID, "://") {
 		providerID = ProviderName + "://" + providerID
 	}

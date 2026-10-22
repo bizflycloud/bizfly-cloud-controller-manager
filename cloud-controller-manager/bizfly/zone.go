@@ -23,6 +23,7 @@ import (
 	"github.com/bizflycloud/gobizfly"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
+	"k8s.io/klog/v2"
 )
 
 type zones struct {
@@ -54,7 +55,8 @@ func (z *zones) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 		}
 		return cloudprovider.Zone{
 			FailureDomain: everywhere_node.Region,
-			Region:        everywhere_node.Region}, nil
+			Region:        everywhere_node.Region,
+		}, nil
 	}
 
 	s, err := z.gclient.CloudServer.Get(ctx, id)
@@ -64,7 +66,8 @@ func (z *zones) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 
 	return cloudprovider.Zone{
 		Region:        z.region,
-		FailureDomain: s.AvailabilityZone}, nil
+		FailureDomain: s.AvailabilityZone,
+	}, nil
 }
 
 // GetZoneByNodeName returns a cloudprovider.Zone from the droplet identified
@@ -73,13 +76,16 @@ func (z *zones) GetZoneByProviderID(ctx context.Context, providerID string) (clo
 func (z *zones) GetZoneByNodeName(ctx context.Context, nodeName types.NodeName) (cloudprovider.Zone, error) {
 	s, err := serverByName(ctx, z.gclient, nodeName)
 	if err != nil {
-		// return cloudprovider.Zone{}, err
+		// Keep the old "do not fail" behaviour, but in this cluster's region rather than always HN
+		klog.Warningf("GetZoneByNodeName - %s: %v, falling back to region %s", nodeName, err, z.region)
 		return cloudprovider.Zone{
-			FailureDomain: "HN",
-			Region:        "HN"}, nil
+			FailureDomain: z.region,
+			Region:        z.region,
+		}, nil
 	}
 
 	return cloudprovider.Zone{
 		Region:        z.region,
-		FailureDomain: s.AvailabilityZone}, nil
+		FailureDomain: s.AvailabilityZone,
+	}, nil
 }
