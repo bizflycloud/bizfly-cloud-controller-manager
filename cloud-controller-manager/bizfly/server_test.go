@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -62,6 +63,15 @@ func TestServerByID_NotFoundWhenEverywhereFails(t *testing.T) {
 	mux.HandleFunc("/api/kubernetes-engine/_/node_everywhere/deleted-node-123", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`{"code": "EVERYWHERE_NOT_SUPPORTED", "message": "Everywhere is no longer supported"}`))
+	})
+
+	// Server list used to confirm a NotFound: deleted-node-123 is not in it
+	mux.HandleFunc("/iaas-cloud/api/servers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+			{"id": "running-node-456", "name": "running-node", "status": "ACTIVE"},
+			{"id": "shutoff-node-789", "name": "shutoff-node", "status": "SHUTOFF"},
+		})
 	})
 
 	// 2. running-node-456: Active running server
@@ -390,3 +400,192 @@ func TestServerByName_FetchesFullDetails(t *testing.T) {
 	}
 }
 
+func newFakeBizflyClient(t *testing.T, mux *http.ServeMux, url string) *gobizfly.Client {
+	t.Helper()
+	mux.HandleFunc("/api/token", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"token":      "fake-keystone-token",
+			"project_id": "fake-project-id",
+			"expires_at": "2099-01-01T00:00:00Z",
+		})
+	})
+	mux.HandleFunc("/api/auth/service", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"services": []map[string]interface{}{
+				{"name": "Cloud Server", "canonical_name": "cloud_server", "service_url": url + "/iaas-cloud/api", "region": "HaNoi"},
+				{"name": "Kubernetes Engine", "canonical_name": "kubernetes-engine", "service_url": url + "/api/kubernetes-engine", "region": "HaNoi"},
+				{"name": "Load Balancer", "canonical_name": "load_balancer", "service_url": url + "/api/loadbalancers", "region": "HaNoi"},
+			},
+		})
+	})
+	client, err := gobizfly.NewClient(gobizfly.WithAPIURL(url), gobizfly.WithRegionName("HN"))
+	if err != nil {
+		t.Fatalf("Failed to create client: %v", err)
+	}
+	tok, err := client.Token.Init(context.Background(), &gobizfly.TokenCreateRequest{
+		AuthMethod: "password", Username: "test", Password: "test", ProjectID: "fake-project-id",
+	})
+	if err != nil {
+		t.Fatalf("Failed to init token: %v", err)
+	}
+	client.SetKeystoneToken(tok)
+	return client
+}
+
+func TestInstanceExistsByProviderID_ConfirmsNotFound(t *testing.T) {
+	cases := []struct {
+		name       string
+		listStatus int
+		listBody   string
+		wantExists bool
+		wantErr    bool
+	}{
+		{"transient 404 but still listed", http.StatusOK, `[{"id": "flaky-node", "status": "ACTIVE"}]`, true, false},
+		{"list fails", http.StatusInternalServerError, `{"message": "boom"}`, false, true},
+		{"empty list", http.StatusOK, `[]`, false, true},
+		{"really gone", http.StatusOK, `[{"id": "other-node", "status": "ACTIVE"}]`, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			serverTest := httptest.NewServer(mux)
+			defer serverTest.Close()
+			client := newFakeBizflyClient(t, mux, serverTest.URL)
+
+			mux.HandleFunc("/iaas-cloud/api/servers/flaky-node", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"message": "Server not found"}`))
+			})
+			mux.HandleFunc("/api/kubernetes-engine/_/node_everywhere/flaky-node", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"code": "EVERYWHERE_NOT_SUPPORTED"}`))
+			})
+			mux.HandleFunc("/iaas-cloud/api/servers", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.listStatus)
+				_, _ = w.Write([]byte(tc.listBody))
+			})
+
+			s := &servers{gclient: client}
+			exists, err := s.InstanceExistsByProviderID(context.Background(), "bizflycloud://flaky-node")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tc.wantErr)
+			}
+			if exists != tc.wantExists {
+				t.Fatalf("exists = %v, want %v", exists, tc.wantExists)
+			}
+		})
+	}
+}
+
+func TestNodeAddresses_StableOrderLanFirst(t *testing.T) {
+	// Addresses map with several networks plus IPAddresses: the first InternalIP is what
+	// nodeAddressForLB uses as the LB member, so it must be the LAN address on every call.
+	server := &gobizfly.Server{
+		ID: "node-id",
+		IPAddresses: gobizfly.IPAddress{
+			LanAddresses:   []gobizfly.IP{{Address: "10.20.1.35"}},
+			WanV4Addresses: []gobizfly.IP{{Address: "14.225.29.96"}},
+		},
+		Addresses: map[string]interface{}{
+			"priv_vpc_b":    []interface{}{map[string]interface{}{"OS-EXT-IPS:type": "fixed", "addr": "10.30.0.5"}},
+			"priv_vpc_a":    []interface{}{map[string]interface{}{"OS-EXT-IPS:type": "fixed", "addr": "10.20.1.35"}},
+			"EXT_DIRECTNET": []interface{}{map[string]interface{}{"OS-EXT-IPS:type": "fixed", "addr": "14.225.29.96"}},
+			// CGNAT range is not RFC1918; on its own network it must not push the LAN IP out of first place
+			"priv_vpc_c": []interface{}{map[string]interface{}{"OS-EXT-IPS:type": "fixed", "addr": "100.64.0.9"}},
+		},
+	}
+
+	first, err := nodeAdddresses(server, nil)
+	if err != nil {
+		t.Fatalf("nodeAdddresses returned error: %v", err)
+	}
+	if first[0].Type != v1.NodeInternalIP || first[0].Address != "10.20.1.35" {
+		t.Fatalf("expected LAN 10.20.1.35 as first address, got %v", first)
+	}
+	for i := 0; i < 50; i++ {
+		addrs, _ := nodeAdddresses(server, nil)
+		if len(addrs) != len(first) {
+			t.Fatalf("run %d: got %v, want %v", i, addrs, first)
+		}
+		for j := range addrs {
+			if addrs[j] != first[j] {
+				t.Fatalf("run %d: order changed, got %v, want %v", i, addrs, first)
+			}
+		}
+	}
+	addr, err := nodeAddressForLB(&v1.Node{Status: v1.NodeStatus{Addresses: first}})
+	if err != nil || addr != "10.20.1.35" {
+		t.Fatalf("nodeAddressForLB = %q, %v; want 10.20.1.35", addr, err)
+	}
+}
+
+func TestGetZoneByNodeName_FallbackUsesRegion(t *testing.T) {
+	mux := http.NewServeMux()
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	client := newFakeBizflyClient(t, mux, ts.URL)
+	mux.HandleFunc("/iaas-cloud/api/servers", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // serverByName gives up right after the first failed attempt
+	z := &zones{region: "HCM", gclient: client}
+	zone, err := z.GetZoneByNodeName(ctx, types.NodeName("node-a"))
+	if err != nil {
+		t.Fatalf("GetZoneByNodeName returned error: %v", err)
+	}
+	if zone.Region != "HCM" || zone.FailureDomain != "HCM" {
+		t.Fatalf("expected HCM fallback, got %+v", zone)
+	}
+}
+
+func TestServerByName_StopsOnContextCancel(t *testing.T) {
+	mux := http.NewServeMux()
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	client := newFakeBizflyClient(t, mux, ts.URL)
+	mux.HandleFunc("/iaas-cloud/api/servers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]map[string]interface{}{})
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, err := serverByName(ctx, client, types.NodeName("missing-node"))
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected context deadline error, got %v", err)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("serverByName ignored the context, took %v", time.Since(start))
+	}
+}
+
+func TestServerByName_FallsBackToFullListWhenFilterMisses(t *testing.T) {
+	mux := http.NewServeMux()
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	client := newFakeBizflyClient(t, mux, ts.URL)
+	mux.HandleFunc("/iaas-cloud/api/servers", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("name") != "" {
+			// Case-sensitive filter on the API side: the lowercase node name finds nothing
+			_ = json.NewEncoder(w).Encode([]map[string]interface{}{})
+			return
+		}
+		_ = json.NewEncoder(w).Encode([]map[string]interface{}{{"id": "srv-1", "name": "pool-node-A"}})
+	})
+	mux.HandleFunc("/iaas-cloud/api/servers/srv-1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"id": "srv-1", "name": "pool-node-A"})
+	})
+
+	server, err := serverByName(context.Background(), client, types.NodeName("pool-node-a"))
+	if err != nil || server == nil || server.ID != "srv-1" {
+		t.Fatalf("serverByName = %+v, %v; want srv-1", server, err)
+	}
+}

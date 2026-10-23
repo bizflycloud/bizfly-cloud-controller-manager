@@ -11,7 +11,6 @@ require (
 	k8s.io/cloud-provider v0.31.0
 	k8s.io/cloud-provider-openstack v1.30.0
 	k8s.io/component-base v0.31.0
-	k8s.io/klog v1.0.0
 	k8s.io/klog/v2 v2.130.1
 )
 
@@ -45,7 +44,6 @@ require (
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gophercloud/gophercloud v1.6.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.20.0 // indirect
 	github.com/imdario/mergo v0.3.15 // indirect

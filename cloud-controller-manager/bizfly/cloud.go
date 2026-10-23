@@ -22,11 +22,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"time"
 
 	"github.com/bizflycloud/gobizfly"
 	cloudprovider "k8s.io/cloud-provider"
-	"k8s.io/klog"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -36,6 +38,8 @@ const (
 	authPassword  string = "password"
 	authAppCred   string = "application_credential"
 	defaultApiUrl string = "https://manage.bizflycloud.vn"
+
+	apiTimeout = 30 * time.Second
 
 	bizflyCloudAuthMethod      string = "BIZFLYCLOUD_AUTH_METHOD"
 	bizflyCloudEmailEnvName    string = "BIZFLYCLOUD_EMAIL"
@@ -47,9 +51,7 @@ const (
 	bizflyCloudTenantID        string = "BIZFLYCLOUD_TENANT_ID"
 )
 
-var (
-	ctx = context.TODO()
-)
+var ctx = context.TODO()
 
 type cloud struct {
 	client        *gobizfly.Client
@@ -97,7 +99,13 @@ func newCloud() (cloudprovider.Interface, error) {
 		apiUrl = defaultApiUrl
 	}
 
-	bizflyClient, err := gobizfly.NewClient(gobizfly.WithAPIURL(apiUrl), gobizfly.WithProjectID(tenantId), gobizfly.WithRegionName(region))
+	bizflyClient, err := gobizfly.NewClient(
+		gobizfly.WithAPIURL(apiUrl),
+		gobizfly.WithProjectID(tenantId),
+		gobizfly.WithRegionName(region),
+		// The default http.Client has no timeout: one hung connection would block a controller worker forever
+		gobizfly.WithHTTPClient(&http.Client{Timeout: apiTimeout}),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("Cannot create BizFly Cloud Client: %w", err)
 	}
@@ -109,8 +117,8 @@ func newCloud() (cloudprovider.Interface, error) {
 			Username:      username,
 			Password:      password,
 			AppCredID:     appCredId,
-			AppCredSecret: appCredSecret})
-
+			AppCredSecret: appCredSecret,
+		})
 	if err != nil {
 		return nil, fmt.Errorf("Cannot create token: %w", err)
 	}
